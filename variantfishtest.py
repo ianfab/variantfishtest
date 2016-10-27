@@ -139,7 +139,7 @@ class EngineMatch:
             with h:
                 if 1 in h.info["score"]:
                     # check for stalemate, checkmate and variant ending
-                    if not h.info["pv"] and bestmove == None:
+                    if not h.info["pv"] and bestmove == "(none)":
                         warnings.warn("Reached final position. This might cause undefined behaviour.", Warning)
                         if h.info["score"][1].cp == 0:
                             return DRAW
