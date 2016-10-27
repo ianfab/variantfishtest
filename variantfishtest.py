@@ -68,9 +68,9 @@ class EngineMatch:
 
     def run(self):
         """Run a test with previously defined settings."""
+        self.print_settings()
         self.init_engines()
         self.init_book()
-        self.print_settings()
         while not self.stop():
             pos = "fen "+random.choice(self.fens) if self.fens else "startpos"
             self.init_game()
@@ -107,11 +107,15 @@ class EngineMatch:
             self.time_losses.append(0)
 
     def init_book(self):
+        if not self.book:
+            return
         bookfile = os.path.join("books", self.variant+".epd")
         if os.path.exists(bookfile):
             f = open(bookfile)
             for line in f:
                 self.fens.append(line.rstrip(';\n'))
+        else:
+            warnings.warn(bookfile+" does not exist. Using starting position.")
 
     def init_game(self):
         """Prepare for next game."""
@@ -140,7 +144,7 @@ class EngineMatch:
                 if 1 in h.info["score"]:
                     # check for stalemate, checkmate and variant ending
                     if not h.info["pv"] and bestmove == "(none)":
-                        warnings.warn("Reached final position. This might cause undefined behaviour.", Warning)
+                        warnings.warn("Reached final position. This might cause undefined behaviour.")
                         if h.info["score"][1].cp == 0:
                             return DRAW
                         elif h.info["score"][1].mate == 0 and self.variant == "giveaway":
@@ -167,7 +171,7 @@ class EngineMatch:
                             self.time_losses[index] += 1
                             return WIN
                 else:
-                    raise Exception("Engine does not return a score.\nMove list: "+" ".join(self.bestmoves))   
+                    raise Exception("Engine does not return a score.\nMove list: "+" ".join(self.bestmoves))
             self.bestmoves.append(bestmove)
 
     def process_game(self, white, black, pos = "startpos"):
