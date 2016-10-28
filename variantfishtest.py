@@ -35,6 +35,7 @@ def print_scores(scores):
     return "Total: %d W: %d L: %d D: %d" % (sum(scores), scores[0], scores[1], scores[2])
 
 class EngineMatch:
+    """Compare two UCI engines by running an engine match."""
     def __init__(self):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument("engine1", help="relative path to first UCI engine", type=str)
@@ -88,6 +89,7 @@ class EngineMatch:
         return False
 
     def sprt_finished(self):
+        """Check whether SPRT test is finished."""
         return stat_util.SPRT({'wins': self.scores[0], 'losses': self.scores[1], 'draws': self.scores[2]},
                               self.elo0, 0.05, self.elo1, 0.05, 200)["finished"]
 
@@ -107,6 +109,7 @@ class EngineMatch:
             self.time_losses.append(0)
 
     def init_book(self):
+        """Read opening book file and fill FEN list."""
         if not self.book:
             return
         bookfile = os.path.join("books", self.variant+".epd")
@@ -128,7 +131,7 @@ class EngineMatch:
             engine.setoption({"clear hash": True})
 
     def play_game(self, white, black, pos = "startpos"):
-        """Play a game and return the game result."""
+        """Play a game and return the game result from white's point of view."""
         res = None
         offset = 0
         if pos != "startpos" and " b " in pos:
@@ -175,6 +178,7 @@ class EngineMatch:
             self.bestmoves.append(bestmove)
 
     def process_game(self, white, black, pos = "startpos"):
+        """Play a game and process the result."""
         res = self.play_game(white, black, pos)
         if self.verbosity > 1:
             self.out.write("Game %d:\n" % (sum(self.scores) + 1)+pos+"\n"+" ".join(self.bestmoves)+"\n")
@@ -187,6 +191,7 @@ class EngineMatch:
             self.print_stats()
 
     def print_stats(self):
+        """Print intermediate results."""
         self.out.write(print_scores(self.scores) + " ")
         if self.sprt:
             self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
@@ -194,6 +199,7 @@ class EngineMatch:
             self.out.write(elo_stats(self.scores))
 
     def print_settings(self):
+        """Print settings for test."""
         self.out.write("engine1:    %s\n"%self.engine_paths[0])
         self.out.write("engine2:    %s\n"%self.engine_paths[1])
         self.out.write("variant:    %s\n"%self.variant)
@@ -207,6 +213,7 @@ class EngineMatch:
         self.out.write("------------------------\n")
 
     def print_results(self):
+        """Print final test result."""
         rm = sum(self.r)/len(self.r)
         drawrate = float(self.scores[2])/sum(self.scores)
         #print(self.r)
