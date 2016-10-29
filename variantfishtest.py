@@ -41,14 +41,15 @@ class EngineMatch:
         self.parser.add_argument("engine1", help="relative path to first UCI engine", type=str)
         self.parser.add_argument("engine2", help="relative path to second UCI engine", type=str)
         self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, choices=VARIANTS, default=VARIANTS[0])
-        self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=1000)
+        self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=5000)
         self.parser.add_argument("-s", "--sprt", help="perform an SPRT test", action="store_true")
         self.parser.add_argument("--elo0", help="lower bound for SPRT test", type=float, default=0)
         self.parser.add_argument("--elo1", help="upper bound for SPRT test", type=float, default=20)
         self.parser.add_argument("-i", "--inc", help="time increment in milliseconds", type=int, default=100)
         self.parser.add_argument("-b", "--book", help="use EPD opening book", action="store_true")
         self.parser.add_argument("-l", "--log", help="write output to specified file", type=str, default="")
-        self.parser.add_argument("--verbosity", help="verbosity level: 1 - intermediate results, 2 - moves of games", type=int, choices=[0,1,2], default=0)
+        self.parser.add_argument("--verbosity", help="verbosity level: 0 - only final results, 1 - intermediate results, 2 - moves of games",
+                                 type=int, choices=[0,1,2], default=1)
         self.parser.parse_args(namespace=self)
 
         self.fens = []
