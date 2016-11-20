@@ -38,8 +38,8 @@ class EngineMatch:
     """Compare two UCI engines by running an engine match."""
     def __init__(self):
         self.parser = argparse.ArgumentParser()
-        self.parser.add_argument("engine1", help="relative path to first UCI engine", type=str)
-        self.parser.add_argument("engine2", help="relative path to second UCI engine", type=str)
+        self.parser.add_argument("engine1", help="absolute or relative path to first UCI engine", type=str)
+        self.parser.add_argument("engine2", help="absolute or relative path to second UCI engine", type=str)
         self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, choices=VARIANTS, default=VARIANTS[0])
         self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=5000)
         self.parser.add_argument("-s", "--sprt", help="perform an SPRT test", action="store_true")
@@ -53,8 +53,8 @@ class EngineMatch:
         self.parser.parse_args(namespace=self)
 
         self.fens = []
-        self.engine_paths = [self.engine1, self.engine2]
-        self.out = open(self.log, "a") if self.log else sys.stdout
+        self.engine_paths = [os.path.abspath(self.engine1), os.path.abspath(self.engine2)]
+        self.out = open(os.path.abspath(self.log), "a") if self.log else sys.stdout
 
         self.t = None
         self.wt = None
@@ -113,7 +113,7 @@ class EngineMatch:
         """Read opening book file and fill FEN list."""
         if not self.book:
             return
-        bookfile = os.path.join("books", self.variant+".epd")
+        bookfile = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "books", self.variant+".epd"))
         if os.path.exists(bookfile):
             f = open(bookfile)
             for line in f:
@@ -143,7 +143,7 @@ class EngineMatch:
             h = self.info_handlers[index]
             e.send_line("position "+pos+" moves "+" ".join(self.bestmoves))
             bestmove, ponder = e.go(wtime=self.wt,btime=self.bt,winc=self.inc,binc=self.inc)
-            
+
             with h:
                 if 1 in h.info["score"]:
                     # check for stalemate, checkmate and variant ending
