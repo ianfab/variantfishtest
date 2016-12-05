@@ -45,6 +45,7 @@ class EngineMatch:
         self.parser.add_argument("-s", "--sprt", help="perform an SPRT test", action="store_true")
         self.parser.add_argument("--elo0", help="lower bound for SPRT test", type=float, default=0)
         self.parser.add_argument("--elo1", help="upper bound for SPRT test", type=float, default=20)
+        self.parser.add_argument("-t", "--time", help="base time in milliseconds", type=int, default=10000)
         self.parser.add_argument("-i", "--inc", help="time increment in milliseconds", type=int, default=100)
         self.parser.add_argument("-b", "--book", help="use EPD opening book", action="store_true")
         self.parser.add_argument("-l", "--log", help="write output to specified file", type=str, default="")
@@ -56,7 +57,6 @@ class EngineMatch:
         self.engine_paths = [os.path.abspath(self.engine1), os.path.abspath(self.engine2)]
         self.out = open(os.path.abspath(self.log), "a") if self.log else sys.stdout
 
-        self.t = None
         self.wt = None
         self.bt = None
         self.scores = [0, 0, 0]
@@ -124,9 +124,8 @@ class EngineMatch:
     def init_game(self):
         """Prepare for next game."""
         self.bestmoves = []
-        self.t = int(pow(100, random.random()) * self.inc)
-        self.wt = self.t
-        self.bt = self.t
+        self.wt = self.time
+        self.bt = self.time
         for engine in self.engines:
             engine.ucinewgame()
             engine.setoption({"clear hash": True})
