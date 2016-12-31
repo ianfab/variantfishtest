@@ -12,6 +12,7 @@ VARIANTS = [
   "crazyhouse",
   "horde",
   "kingofthehill",
+  "losers",
   "racingkings",
   "relay",
   "threecheck",
@@ -150,7 +151,7 @@ class EngineMatch:
                         warnings.warn("Reached final position. This might cause undefined behaviour.")
                         if h.info["score"][1].cp == 0:
                             return DRAW
-                        elif h.info["score"][1].mate == 0 and self.variant == "giveaway":
+                        elif h.info["score"][1].mate == 0 and self.variant in ["giveaway", "losers"]:
                             return WIN if index == white else LOSS
                         elif h.info["score"][1].mate == 0:
                             return LOSS if index == white else WIN
