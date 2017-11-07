@@ -16,6 +16,9 @@ VARIANTS = [
   "racingkings",
   "relay",
   "threecheck",
+  "seirawan",
+  "twokings",
+  "extinction",
 ]
 
 RESULTS = [WIN, LOSS, DRAW] = range(3)
@@ -233,3 +236,4 @@ class EngineMatch:
 if __name__ == "__main__": 
     match = EngineMatch()
     match.run()
+
