@@ -215,6 +215,7 @@ class EngineMatch:
         if self.sprt:
             self.out.write("elo0:       %.2f\n"%self.elo0)
             self.out.write("elo1:       %.2f\n"%self.elo1)
+        self.out.write("time:       %d\n"%self.time)
         self.out.write("increment:  %d\n"%self.inc)
         self.out.write("book:       %s\n"%self.book)
         self.out.write("------------------------\n")
