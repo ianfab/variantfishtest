@@ -10,15 +10,18 @@ VARIANTS = [
   "giveaway",
   "atomic",
   "crazyhouse",
+  "grid",
+  "extinction",
   "horde",
   "kingofthehill",
   "losers",
   "racingkings",
   "relay",
   "threecheck",
-  "seirawan",
   "twokings",
-  "extinction",
+  "seirawan",
+  "shatranj",
+  "makruk",
 ]
 
 RESULTS = [WIN, LOSS, DRAW] = range(3)
