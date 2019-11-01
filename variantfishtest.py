@@ -1,53 +1,66 @@
-import chess.uci
-import sys, os
-import random, math
-import stat_util
+import sys
+import os
+import random
 import warnings
 import argparse
 
+import stat_util
+import chess.uci
+
 VARIANTS = [
-  "chess",
-  "giveaway",
-  "atomic",
-  "crazyhouse",
-  "grid",
-  "extinction",
-  "horde",
-  "kingofthehill",
-  "losers",
-  "racingkings",
-  "relay",
-  "threecheck",
-  "twokings",
-  "seirawan",
-  "shatranj",
-  "makruk",
+    "chess",
+    "giveaway",
+    "atomic",
+    "crazyhouse",
+    "grid",
+    "extinction",
+    "horde",
+    "kingofthehill",
+    "losers",
+    "racingkings",
+    "relay",
+    "threecheck",
+    "twokings",
+    "seirawan",
+    "shatranj",
+    "makruk",
+    "musketeer",
+    "hoppelpoppel",
+    "asean",
+    "ai-wok",
+    "euroshogi",
+    "minishogi"
 ]
 
 RESULTS = [WIN, LOSS, DRAW] = range(3)
 SCORES = [1, 0, 0.5]
 
+
 def elo_stats(scores):
     try:
         elo, elo95, los = stat_util.get_elo(scores)
-        return "ELO: %.2f +-%.1f (95%%) LOS: %.1f%%\n" % (elo, elo95, 100*los)
+        return "ELO: %.2f +-%.1f (95%%) LOS: %.1f%%\n" % (elo, elo95, 100 * los)
     except (ValueError, ZeroDivisionError):
         return "\n"
+
 
 def sprt_stats(scores, elo1, elo2):
     s = stat_util.SPRT({'wins': scores[0], 'losses': scores[1], 'draws': scores[2]}, elo1, 0.05, elo2, 0.05, 200)
     return "LLR: %.2f (%.2f,%.2f) [%.2f,%.2f]\n" % (s['llr'], s['lower_bound'], s['upper_bound'], elo1, elo2)
 
+
 def print_scores(scores):
     return "Total: %d W: %d L: %d D: %d" % (sum(scores), scores[0], scores[1], scores[2])
 
+
 class EngineMatch:
     """Compare two UCI engines by running an engine match."""
+
     def __init__(self):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument("engine1", help="absolute or relative path to first UCI engine", type=str)
         self.parser.add_argument("engine2", help="absolute or relative path to second UCI engine", type=str)
-        self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, choices=VARIANTS, default=VARIANTS[0])
+        self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, default=VARIANTS[0])
         self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=5000)
         self.parser.add_argument("-s", "--sprt", help="perform an SPRT test", action="store_true")
         self.parser.add_argument("--elo0", help="lower bound for SPRT test", type=float, default=0)
@@ -56,10 +69,14 @@ class EngineMatch:
         self.parser.add_argument("-i", "--inc", help="time increment in milliseconds", type=int, default=100)
         self.parser.add_argument("-b", "--book", help="use EPD opening book", action="store_true")
         self.parser.add_argument("-l", "--log", help="write output to specified file", type=str, default="")
-        self.parser.add_argument("--verbosity", help="verbosity level: 0 - only final results, 1 - intermediate results, 2 - moves of games",
-                                 type=int, choices=[0,1,2], default=1)
+        self.parser.add_argument("--verbosity",
+                                 help="verbosity level: "
+                                      "0 - only final results, 1 - intermediate results, 2 - moves of games",
+                                 type=int, choices=[0, 1, 2], default=1)
         self.parser.parse_args(namespace=self)
 
+        self.variants = self.variant.split(',')
+        self.variant = self.variants[0]
         self.fens = []
         self.engine_paths = [os.path.abspath(self.engine1), os.path.abspath(self.engine2)]
         self.out = open(os.path.abspath(self.log), "a") if self.log else sys.stdout
@@ -79,9 +96,10 @@ class EngineMatch:
         """Run a test with previously defined settings."""
         self.print_settings()
         self.init_engines()
-        self.init_book()
         while not self.stop():
-            pos = "fen "+random.choice(self.fens) if self.fens else "startpos"
+            self.variant = random.choice(self.variants)
+            self.init_book()
+            pos = "fen " + random.choice(self.fens) if self.fens else "startpos"
             self.init_game()
             self.process_game(0, 1, pos)
             self.init_game()
@@ -90,7 +108,7 @@ class EngineMatch:
         self.close()
 
     def stop(self):
-        if (self.max_games and sum(self.scores) >= self.max_games):
+        if self.max_games and sum(self.scores) >= self.max_games:
             return True
         if self.sprt and self.sprt_finished():
             return True
@@ -105,7 +123,7 @@ class EngineMatch:
         """Setup engines and info handlers."""
         for path in self.engine_paths:
             if not os.path.exists(path):
-                sys.exit(path+" does not exist.")
+                sys.exit(path + " does not exist.")
             self.engines.append(chess.uci.popen_engine(path))
         self.info_handlers = []
         for engine in self.engines:
@@ -120,13 +138,14 @@ class EngineMatch:
         """Read opening book file and fill FEN list."""
         if not self.book:
             return
-        bookfile = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "books", self.variant+".epd"))
+        bookfile = os.path.abspath(
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), "books", self.variant + ".epd"))
         if os.path.exists(bookfile):
             f = open(bookfile)
             for line in f:
                 self.fens.append(line.rstrip(';\n'))
         else:
-            warnings.warn(bookfile+" does not exist. Using starting position.")
+            warnings.warn(bookfile + " does not exist. Using starting position.")
 
     def init_game(self):
         """Prepare for next game."""
@@ -135,20 +154,20 @@ class EngineMatch:
         self.bt = self.time
         for engine in self.engines:
             engine.ucinewgame()
-            engine.setoption({"clear hash": True})
+            engine.setoption({"clear hash": True, "UCI_Variant": self.variant})
 
-    def play_game(self, white, black, pos = "startpos"):
+    def play_game(self, white, black, pos="startpos"):
         """Play a game and return the game result from white's point of view."""
         res = None
         offset = 0
         if pos != "startpos" and " b " in pos:
             offset = 1
-        while(True):
+        while True:
             index = white if (len(self.bestmoves) + offset) % 2 == 0 else black
             e = self.engines[index]
             h = self.info_handlers[index]
-            e.send_line("position "+pos+" moves "+" ".join(self.bestmoves))
-            bestmove, ponder = e.go(wtime=self.wt,btime=self.bt,winc=self.inc,binc=self.inc)
+            e.send_line("position " + pos + " moves " + " ".join(self.bestmoves))
+            bestmove, ponder = e.go(wtime=self.wt, btime=self.bt, winc=self.inc, binc=self.inc)
 
             with h:
                 if 1 in h.info["score"]:
@@ -162,7 +181,7 @@ class EngineMatch:
                         elif h.info["score"][1].mate == 0:
                             return LOSS if index == white else WIN
                         else:
-                            raise Exception("Invalid game result.\nMove list: "+" ".join(self.bestmoves))
+                            raise Exception("Invalid game result.\nMove list: " + " ".join(self.bestmoves))
                     # check for 3fold and 50 moves rule
                     elif h.info["score"][1].cp == 0 and len(h.info["pv"][1]) == 1:
                         return DRAW
@@ -181,19 +200,20 @@ class EngineMatch:
                             self.time_losses[index] += 1
                             return WIN
                 else:
-                    raise Exception("Engine does not return a score.\nMove list: "+" ".join(self.bestmoves))
+                    raise Exception("Engine does not return a score.\nMove list: " + " ".join(self.bestmoves))
             self.bestmoves.append(bestmove)
 
-    def process_game(self, white, black, pos = "startpos"):
+    def process_game(self, white, black, pos="startpos"):
         """Play a game and process the result."""
         res = self.play_game(white, black, pos)
         if self.verbosity > 1:
-            self.out.write("Game %d:\n" % (sum(self.scores) + 1)+pos+"\n"+" ".join(self.bestmoves)+"\n")
+            self.out.write(
+                "Game %d (%s):\n" % (sum(self.scores) + 1, self.variant) + pos + "\n" + " ".join(self.bestmoves) + "\n")
         self.r.append(SCORES[res] if white == 0 else 1 - SCORES[res])
         if white == 0 or res == DRAW:
             self.scores[res] += 1
         else:
-            self.scores[1-res] += 1
+            self.scores[1 - res] += 1
         if self.verbosity > 0:
             self.print_stats()
 
@@ -207,24 +227,24 @@ class EngineMatch:
 
     def print_settings(self):
         """Print settings for test."""
-        self.out.write("engine1:    %s\n"%self.engine_paths[0])
-        self.out.write("engine2:    %s\n"%self.engine_paths[1])
-        self.out.write("variant:    %s\n"%self.variant)
-        self.out.write("# of games: %d\n"%self.max_games)
-        self.out.write("sprt:       %s\n"%self.sprt)
+        self.out.write("engine1:    %s\n" % self.engine_paths[0])
+        self.out.write("engine2:    %s\n" % self.engine_paths[1])
+        self.out.write("variants:    %s\n" % self.variants)
+        self.out.write("# of games: %d\n" % self.max_games)
+        self.out.write("sprt:       %s\n" % self.sprt)
         if self.sprt:
-            self.out.write("elo0:       %.2f\n"%self.elo0)
-            self.out.write("elo1:       %.2f\n"%self.elo1)
-        self.out.write("time:       %d\n"%self.time)
-        self.out.write("increment:  %d\n"%self.inc)
-        self.out.write("book:       %s\n"%self.book)
+            self.out.write("elo0:       %.2f\n" % self.elo0)
+            self.out.write("elo1:       %.2f\n" % self.elo1)
+        self.out.write("time:       %d\n" % self.time)
+        self.out.write("increment:  %d\n" % self.inc)
+        self.out.write("book:       %s\n" % self.book)
         self.out.write("------------------------\n")
 
     def print_results(self):
         """Print final test result."""
-        rm = sum(self.r)/len(self.r)
-        drawrate = float(self.scores[2])/sum(self.scores)
-        #print(self.r)
+        rm = sum(self.r) / len(self.r)
+        drawrate = float(self.scores[2]) / sum(self.scores)
+        # print(self.r)
         self.out.write("------------------------\n")
         self.out.write("Stats:\n")
         self.out.write("draw rate: %.2f\n" % (drawrate))
@@ -237,7 +257,7 @@ class EngineMatch:
             self.out.write(elo_stats(self.scores))
         self.out.write(print_scores(self.scores) + "\n")
 
-if __name__ == "__main__": 
+
+if __name__ == "__main__":
     match = EngineMatch()
     match.run()
-
