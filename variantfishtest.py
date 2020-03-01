@@ -61,6 +61,7 @@ class EngineMatch:
         self.parser.add_argument("engine1", help="absolute or relative path to first UCI engine", type=str)
         self.parser.add_argument("engine2", help="absolute or relative path to second UCI engine", type=str)
         self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, default=VARIANTS[0])
+        self.parser.add_argument("-c", "--config", help="path to variants.ini", type=str)
         self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=5000)
         self.parser.add_argument("-s", "--sprt", help="perform an SPRT test", action="store_true")
         self.parser.add_argument("--elo0", help="lower bound for SPRT test", type=float, default=0)
@@ -128,6 +129,8 @@ class EngineMatch:
         self.info_handlers = []
         for engine in self.engines:
             engine.uci()
+            if self.config:
+                engine.setoption({"VariantPath": self.config})
             engine.setoption({"UCI_Variant": self.variant})
 
             self.info_handlers.append(chess.uci.InfoHandler())
@@ -229,7 +232,8 @@ class EngineMatch:
         """Print settings for test."""
         self.out.write("engine1:    %s\n" % self.engine_paths[0])
         self.out.write("engine2:    %s\n" % self.engine_paths[1])
-        self.out.write("variants:    %s\n" % self.variants)
+        self.out.write("variants:   %s\n" % self.variants)
+        self.out.write("config:     %s\n" % self.config)
         self.out.write("# of games: %d\n" % self.max_games)
         self.out.write("sprt:       %s\n" % self.sprt)
         if self.sprt:
