@@ -60,6 +60,8 @@ class EngineMatch:
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument("engine1", help="absolute or relative path to first UCI engine", type=str)
         self.parser.add_argument("engine2", help="absolute or relative path to second UCI engine", type=str)
+        self.parser.add_argument("--e1-options", help="options for first UCI engine", type=lambda kv: kv.split("="), action='append', default=[])
+        self.parser.add_argument("--e2-options", help="options for second UCI engine", type=lambda kv: kv.split("="), action='append', default=[])
         self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, default=VARIANTS[0])
         self.parser.add_argument("-c", "--config", help="path to variants.ini", type=str)
         self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=5000)
@@ -80,6 +82,7 @@ class EngineMatch:
         self.variant = self.variants[0]
         self.fens = []
         self.engine_paths = [os.path.abspath(self.engine1), os.path.abspath(self.engine2)]
+        self.engine_options = [dict(self.e1_options), dict(self.e2_options)]
         self.out = open(os.path.abspath(self.log), "a") if self.log else sys.stdout
 
         self.wt = None
@@ -127,11 +130,12 @@ class EngineMatch:
                 sys.exit(path + " does not exist.")
             self.engines.append(chess.uci.popen_engine(path))
         self.info_handlers = []
-        for engine in self.engines:
+        for engine, options in zip(self.engines, self.engine_options):
             engine.uci()
             if self.config:
                 engine.setoption({"VariantPath": self.config})
             engine.setoption({"UCI_Variant": self.variant})
+            engine.setoption(options)
 
             self.info_handlers.append(chess.uci.InfoHandler())
             engine.info_handlers.append(self.info_handlers[-1])
@@ -232,6 +236,8 @@ class EngineMatch:
         """Print settings for test."""
         self.out.write("engine1:    %s\n" % self.engine_paths[0])
         self.out.write("engine2:    %s\n" % self.engine_paths[1])
+        self.out.write("e1-options: %s\n" % self.engine_options[0])
+        self.out.write("e2-options: %s\n" % self.engine_options[1])
         self.out.write("variants:   %s\n" % self.variants)
         self.out.write("config:     %s\n" % self.config)
         self.out.write("# of games: %d\n" % self.max_games)
