@@ -7,30 +7,8 @@ import argparse
 import stat_util
 import chess.uci
 
-VARIANTS = [
-    "chess",
-    "giveaway",
-    "atomic",
-    "crazyhouse",
-    "grid",
-    "extinction",
-    "horde",
-    "kingofthehill",
-    "losers",
-    "racingkings",
-    "relay",
-    "threecheck",
-    "twokings",
-    "seirawan",
-    "shatranj",
-    "makruk",
-    "musketeer",
-    "hoppelpoppel",
-    "asean",
-    "ai-wok",
-    "euroshogi",
-    "minishogi"
-]
+import logging
+
 
 RESULTS = [WIN, LOSS, DRAW] = range(3)
 SCORES = [1, 0, 0.5]
@@ -62,7 +40,7 @@ class EngineMatch:
         self.parser.add_argument("engine2", help="absolute or relative path to second UCI engine", type=str)
         self.parser.add_argument("--e1-options", help="options for first UCI engine", type=lambda kv: kv.split("="), action='append', default=[])
         self.parser.add_argument("--e2-options", help="options for second UCI engine", type=lambda kv: kv.split("="), action='append', default=[])
-        self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, default=VARIANTS[0])
+        self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, default="chess")
         self.parser.add_argument("-c", "--config", help="path to variants.ini", type=str)
         self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=5000)
         self.parser.add_argument("-s", "--sprt", help="perform an SPRT test", action="store_true")
@@ -74,8 +52,8 @@ class EngineMatch:
         self.parser.add_argument("-l", "--log", help="write output to specified file", type=str, default="")
         self.parser.add_argument("--verbosity",
                                  help="verbosity level: "
-                                      "0 - only final results, 1 - intermediate results, 2 - moves of games",
-                                 type=int, choices=[0, 1, 2], default=1)
+                                      "0 - only final results, 1 - intermediate results, 2 - moves of games, 3 - debug",
+                                 type=int, choices=[0, 1, 2, 3], default=1)
         self.parser.parse_args(namespace=self)
 
         self.variants = self.variant.split(',')
@@ -91,6 +69,10 @@ class EngineMatch:
         self.r = []
         self.engines = []
         self.time_losses = []
+
+        if self.verbosity > 2:
+            logging.basicConfig()
+            chess.uci.LOGGER.setLevel(logging.DEBUG)
 
     def close(self):
         if self.out != sys.stdout:
@@ -221,7 +203,9 @@ class EngineMatch:
             self.scores[res] += 1
         else:
             self.scores[1 - res] += 1
-        if self.verbosity > 0:
+        if self.verbosity > 1:
+            self.print_results()
+        elif self.verbosity > 0:
             self.print_stats()
 
     def print_stats(self):
@@ -252,7 +236,6 @@ class EngineMatch:
 
     def print_results(self):
         """Print final test result."""
-        rm = sum(self.r) / len(self.r)
         drawrate = float(self.scores[2]) / sum(self.scores)
         # print(self.r)
         self.out.write("------------------------\n")
