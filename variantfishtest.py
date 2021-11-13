@@ -172,19 +172,19 @@ class EngineMatch:
                         else:
                             raise Exception("Invalid game result.\nMove list: " + " ".join(self.bestmoves))
                     # check for 3fold and 50 moves rule
-                    elif h.info["score"][1].cp == 0 and len(h.info["pv"][1]) == 1:
+                    elif h.info["score"][1].cp == 0 and h.info["pv"] and len(h.info["pv"][1]) == 1:
                         return DRAW
                     # check for mate in 1
                     elif h.info["score"][1].mate == 1:
                         return WIN if index == white else LOSS
                     # adjust time remaining on clock
                     if index == white:
-                        self.wt += self.inc - h.info["time"]
+                        self.wt += self.inc - h.info.get("time", 0)
                         if self.wt < 0:
                             self.time_losses[index] += 1
                             return LOSS
                     else:
-                        self.bt += self.inc - h.info["time"]
+                        self.bt += self.inc - h.info.get("time", 0)
                         if self.bt < 0:
                             self.time_losses[index] += 1
                             return WIN
