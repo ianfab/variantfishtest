@@ -1245,7 +1245,7 @@ class Engine(object):
         """
         return self._queue_command(QuitCommand(), async_callback)
 
-    def terminate(self, async=False):
+    def terminate(self, _async=False):
         """
         Terminate the engine.
 
@@ -1259,12 +1259,12 @@ class Engine(object):
         self.process.terminate()
 
         promise = TerminationPromise(self)
-        if async:
+        if _async:
             return promise
         else:
             return promise.result()
 
-    def kill(self, async=False):
+    def kill(self, _async=False):
         """
         Kill the engine.
 
@@ -1276,7 +1276,7 @@ class Engine(object):
         self.process.kill()
 
         promise = TerminationPromise(self)
-        if async:
+        if _async:
             return promise
         else:
             return promise.result()
