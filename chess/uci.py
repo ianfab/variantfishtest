@@ -960,10 +960,7 @@ class Engine(object):
             elif current_parameter == "nodes":
                 handle_integer_token(token, lambda handler, val: handler.nodes(val))
             elif current_parameter == "pv":
-                try:
-                    pv.append(chess.Move.from_uci(token))
-                except ValueError:
-                    pass
+                pv.append(token)
             elif current_parameter == "multipv":
                 # Ignore multipv. It was already parsed before anything else.
                 pass
