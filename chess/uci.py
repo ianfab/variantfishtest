@@ -54,7 +54,7 @@ class BestMove(collections.namedtuple("BestMove", ["bestmove", "ponder"])):
     pass
 
 
-class OptionMap(collections.MutableMapping):
+class OptionMap(collections.abc.MutableMapping):
     def __init__(self, data=None, **kwargs):
         self._store = dict()
         if data is None:
