@@ -84,7 +84,9 @@ class EngineMatch:
         self.init_engines()
         while not self.stop():
             self.variant = random.choice(self.variants)
-            self.init_book()
+            # only (re-)init book if required
+            if self.book and (len(self.variants) > 1 or not self.fens):
+                self.init_book()
             pos = "fen " + random.choice(self.fens) if self.fens else "startpos"
             self.init_game()
             self.process_game(0, 1, pos)
@@ -125,17 +127,17 @@ class EngineMatch:
 
     def init_book(self):
         """Read opening book file and fill FEN list."""
+        assert self.book
         if self.book is True:
             bookfile = os.path.abspath(
                 os.path.join(os.path.dirname(os.path.realpath(__file__)), "books", self.variant + ".epd"))
         elif self.book:
             bookfile = os.path.abspath(self.book)
-        else:
-            return
         if os.path.exists(bookfile):
-            f = open(bookfile)
-            for line in f:
-                self.fens.append(line.rstrip(';\n'))
+            with open(bookfile) as f:
+                self.fens = []
+                for line in f:
+                    self.fens.append(line.rstrip(';\n'))
         else:
             warnings.warn(bookfile + " does not exist. Using starting position.")
 
