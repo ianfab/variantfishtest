@@ -48,7 +48,7 @@ class EngineMatch:
         self.parser.add_argument("--elo1", help="upper bound for SPRT test", type=float, default=10)
         self.parser.add_argument("-t", "--time", help="base time in milliseconds", type=int, default=10000)
         self.parser.add_argument("-i", "--inc", help="time increment in milliseconds", type=int, default=100)
-        self.parser.add_argument("-b", "--book", help="use EPD opening book", action="store_true")
+        self.parser.add_argument("-b", "--book", help="use EPD opening book", nargs="?", type=str, const=True)
         self.parser.add_argument("-l", "--log", help="write output to specified file", type=str, default="")
         self.parser.add_argument("--verbosity",
                                  help="verbosity level: "
@@ -125,10 +125,13 @@ class EngineMatch:
 
     def init_book(self):
         """Read opening book file and fill FEN list."""
-        if not self.book:
+        if self.book is True:
+            bookfile = os.path.abspath(
+                os.path.join(os.path.dirname(os.path.realpath(__file__)), "books", self.variant + ".epd"))
+        elif self.book:
+            bookfile = os.path.abspath(self.book)
+        else:
             return
-        bookfile = os.path.abspath(
-            os.path.join(os.path.dirname(os.path.realpath(__file__)), "books", self.variant + ".epd"))
         if os.path.exists(bookfile):
             f = open(bookfile)
             for line in f:
