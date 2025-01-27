@@ -162,6 +162,7 @@ class EngineMatch:
             h = self.info_handlers[index]
             e.send_line("position " + pos + " moves " + " ".join(self.bestmoves))
             bestmove, ponder = e.go(wtime=self.wt, btime=self.bt, winc=self.inc, binc=self.inc)
+            self.bestmoves.append(bestmove)
 
             with h:
                 if 1 in h.info["score"]:
@@ -195,7 +196,6 @@ class EngineMatch:
                             return WIN
                 else:
                     raise Exception("Engine does not return a score.\nMove list: " + " ".join(self.bestmoves))
-            self.bestmoves.append(bestmove)
 
     def process_game(self, white, black, pos="startpos"):
         """Play a game and process the result."""
@@ -212,6 +212,7 @@ class EngineMatch:
             self.print_results()
         elif self.verbosity > 0:
             self.print_stats()
+        self.out.flush()
 
     def print_stats(self):
         """Print intermediate results."""
