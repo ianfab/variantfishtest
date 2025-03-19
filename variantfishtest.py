@@ -1,15 +1,17 @@
+#!/usr/bin/env python
 import sys
 import os
 import random
 import warnings
 import argparse
+import threading
+import logging
 
 import stat_util
 import chess.uci
 
-import logging
 
-
+# Global result codes
 RESULTS = [WIN, LOSS, DRAW] = range(3)
 SCORES = [1, 0, 0.5]
 
@@ -32,14 +34,21 @@ def print_scores(scores):
 
 
 class EngineMatch:
-    """Compare two UCI engines by running an engine match."""
+    """Compare two UCI engines by running an engine match concurrently.
+    
+    This version uses worker threads; each worker plays a match instance
+    (a pair of games with colors swapped) independently, creating its own engine
+    processes. Global scores are updated under a lock.
+    """
 
     def __init__(self):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument("engine1", help="absolute or relative path to first UCI engine", type=str)
         self.parser.add_argument("engine2", help="absolute or relative path to second UCI engine", type=str)
-        self.parser.add_argument("--e1-options", help="options for first UCI engine", type=lambda kv: kv.split("="), action='append', default=[])
-        self.parser.add_argument("--e2-options", help="options for second UCI engine", type=lambda kv: kv.split("="), action='append', default=[])
+        self.parser.add_argument("--e1-options", help="options for first UCI engine", type=lambda kv: kv.split("="),
+                                 action='append', default=[])
+        self.parser.add_argument("--e2-options", help="options for second UCI engine", type=lambda kv: kv.split("="),
+                                 action='append', default=[])
         self.parser.add_argument("-v", "--variant", help="choose a chess variant", type=str, default="chess")
         self.parser.add_argument("-c", "--config", help="path to variants.ini", type=str)
         self.parser.add_argument("-n", "--max_games", help="maximum number of games", type=int, default=5000)
@@ -54,8 +63,10 @@ class EngineMatch:
                                  help="verbosity level: "
                                       "0 - only final results, 1 - intermediate results, 2 - moves of games, 3 - debug",
                                  type=int, choices=[0, 1, 2, 3], default=1)
+        self.parser.add_argument("-T", "--threads", help="number of concurrent game threads", type=int, default=4)
         self.parser.parse_args(namespace=self)
 
+        # Split variants and set default variant (workers choose randomly later)
         self.variants = self.variant.split(',')
         self.variant = self.variants[0]
         self.fens = []
@@ -63,39 +74,28 @@ class EngineMatch:
         self.engine_options = [dict(self.e1_options), dict(self.e2_options)]
         self.out = open(os.path.abspath(self.log), "a") if self.log else sys.stdout
 
-        self.wt = None
-        self.bt = None
+        # Global score counters and time-loss counters (for both engines)
         self.scores = [0, 0, 0]
+        self.time_losses = [0, 0]
+        # For SPRT and score list if needed
         self.r = []
-        self.engines = []
-        self.time_losses = []
+        # Number of threads to run concurrently
+        self.threads = self.threads
 
+        # Logging setup
         if self.verbosity > 2:
             logging.basicConfig()
             chess.uci.LOGGER.setLevel(logging.DEBUG)
+
+        # Lock for updating shared counters
+        self.lock = threading.Lock()
 
     def close(self):
         if self.out != sys.stdout:
             self.out.close()
 
-    def run(self):
-        """Run a test with previously defined settings."""
-        self.print_settings()
-        self.init_engines()
-        while not self.stop():
-            self.variant = random.choice(self.variants)
-            # only (re-)init book if required
-            if self.book and (len(self.variants) > 1 or not self.fens):
-                self.init_book()
-            pos = "fen " + random.choice(self.fens) if self.fens else "startpos"
-            self.init_game()
-            self.process_game(0, 1, pos)
-            self.init_game()
-            self.process_game(1, 0, pos)
-        self.print_results()
-        self.close()
-
     def stop(self):
+        """Check whether testing should stop."""
         if self.max_games and sum(self.scores) >= self.max_games:
             return True
         if self.sprt and self.sprt_finished():
@@ -106,24 +106,6 @@ class EngineMatch:
         """Check whether SPRT test is finished."""
         return stat_util.SPRT({'wins': self.scores[0], 'losses': self.scores[1], 'draws': self.scores[2]},
                               self.elo0, 0.05, self.elo1, 0.05, 200)["finished"]
-
-    def init_engines(self):
-        """Setup engines and info handlers."""
-        for path in self.engine_paths:
-            if not os.path.exists(path):
-                sys.exit(path + " does not exist.")
-            self.engines.append(chess.uci.popen_engine(path))
-        self.info_handlers = []
-        for engine, options in zip(self.engines, self.engine_options):
-            engine.uci()
-            if self.config:
-                engine.setoption({"VariantPath": self.config})
-            engine.setoption({"UCI_Variant": self.variant})
-            engine.setoption(options)
-
-            self.info_handlers.append(chess.uci.InfoHandler())
-            engine.info_handlers.append(self.info_handlers[-1])
-            self.time_losses.append(0)
 
     def init_book(self):
         """Read opening book file and fill FEN list."""
@@ -141,89 +123,8 @@ class EngineMatch:
         else:
             warnings.warn(bookfile + " does not exist. Using starting position.")
 
-    def init_game(self):
-        """Prepare for next game."""
-        self.bestmoves = []
-        self.wt = self.time
-        self.bt = self.time
-        for engine in self.engines:
-            engine.ucinewgame()
-            engine.setoption({"clear hash": True, "UCI_Variant": self.variant})
-
-    def play_game(self, white, black, pos="startpos"):
-        """Play a game and return the game result from white's point of view."""
-        res = None
-        offset = 0
-        if pos != "startpos" and " b " in pos:
-            offset = 1
-        while True:
-            index = white if (len(self.bestmoves) + offset) % 2 == 0 else black
-            e = self.engines[index]
-            h = self.info_handlers[index]
-            e.send_line("position " + pos + " moves " + " ".join(self.bestmoves))
-            bestmove, ponder = e.go(wtime=self.wt, btime=self.bt, winc=self.inc, binc=self.inc)
-            self.bestmoves.append(bestmove)
-
-            with h:
-                if 1 in h.info["score"]:
-                    # check for stalemate, checkmate and variant ending
-                    if not h.info["pv"] and bestmove == "(none)":
-                        warnings.warn("Reached final position. This might cause undefined behaviour.")
-                        if h.info["score"][1].cp == 0:
-                            return DRAW
-                        elif h.info["score"][1].mate == 0 and self.variant in ["giveaway", "losers"]:
-                            return WIN if index == white else LOSS
-                        elif h.info["score"][1].mate == 0:
-                            return LOSS if index == white else WIN
-                        else:
-                            raise Exception("Invalid game result.\nMove list: " + " ".join(self.bestmoves))
-                    # check for 3fold and 50 moves rule
-                    elif h.info["score"][1].cp == 0 and h.info["pv"] and len(h.info["pv"][1]) == 1:
-                        return DRAW
-                    # check for mate in 1
-                    elif h.info["score"][1].mate == 1:
-                        return WIN if index == white else LOSS
-                    # adjust time remaining on clock
-                    if index == white:
-                        self.wt += self.inc - h.info.get("time", 0)
-                        if self.wt < 0:
-                            self.time_losses[index] += 1
-                            return LOSS
-                    else:
-                        self.bt += self.inc - h.info.get("time", 0)
-                        if self.bt < 0:
-                            self.time_losses[index] += 1
-                            return WIN
-                else:
-                    raise Exception("Engine does not return a score.\nMove list: " + " ".join(self.bestmoves))
-
-    def process_game(self, white, black, pos="startpos"):
-        """Play a game and process the result."""
-        res = self.play_game(white, black, pos)
-        if self.verbosity > 1:
-            self.out.write(
-                "Game %d (%s):\n" % (sum(self.scores) + 1, self.variant) + pos + "\n" + " ".join(self.bestmoves) + "\n")
-        self.r.append(SCORES[res] if white == 0 else 1 - SCORES[res])
-        if white == 0 or res == DRAW:
-            self.scores[res] += 1
-        else:
-            self.scores[1 - res] += 1
-        if self.verbosity > 1:
-            self.print_results()
-        elif self.verbosity > 0:
-            self.print_stats()
-        self.out.flush()
-
-    def print_stats(self):
-        """Print intermediate results."""
-        self.out.write(print_scores(self.scores) + " ")
-        if self.sprt:
-            self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
-        else:
-            self.out.write(elo_stats(self.scores))
-
     def print_settings(self):
-        """Print settings for test."""
+        """Print settings for the test."""
         self.out.write("engine1:    %s\n" % self.engine_paths[0])
         self.out.write("engine2:    %s\n" % self.engine_paths[1])
         self.out.write("e1-options: %s\n" % self.engine_options[0])
@@ -238,12 +139,22 @@ class EngineMatch:
         self.out.write("time:       %d\n" % self.time)
         self.out.write("increment:  %d\n" % self.inc)
         self.out.write("book:       %s\n" % self.book)
+        self.out.write("threads:    %d\n" % self.threads)
         self.out.write("------------------------\n")
+        self.out.flush()
+
+    def print_stats(self):
+        """Print intermediate results."""
+        self.out.write(print_scores(self.scores) + " ")
+        if self.sprt:
+            self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
+        else:
+            self.out.write(elo_stats(self.scores))
+        self.out.flush()
 
     def print_results(self):
         """Print final test result."""
-        drawrate = float(self.scores[2]) / sum(self.scores)
-        # print(self.r)
+        drawrate = float(self.scores[2]) / sum(self.scores) if sum(self.scores) > 0 else 0
         self.out.write("------------------------\n")
         self.out.write("Stats:\n")
         self.out.write("draw rate: %.2f\n" % (drawrate))
@@ -255,6 +166,188 @@ class EngineMatch:
         else:
             self.out.write(elo_stats(self.scores))
         self.out.write(print_scores(self.scores) + "\n")
+        self.out.flush()
+
+    def worker(self):
+        """Worker thread: play match instances until the global stop condition is met."""
+        while True:
+            with self.lock:
+                if self.stop():
+                    break
+            try:
+                # Play one match instance (two games with color swap)
+                res1, res2, tl1, tl2 = self.play_match_instance()
+            except Exception as e:
+                # Log the exception and continue with the next match instance.
+                self.out.write("Error in match instance: %s\n" % e)
+                self.out.flush()
+                continue
+            # Update the global counters (each match instance is 2 games)
+            with self.lock:
+                # Game 1: engine1 plays white.
+                if res1 == DRAW:
+                    self.scores[DRAW] += 1
+                else:
+                    self.scores[res1] += 1
+                # Game 2: engine1 plays black; use 1 - res if not a draw.
+                if res2 == DRAW:
+                    self.scores[DRAW] += 1
+                else:
+                    self.scores[1 - res2] += 1
+                # Update time loss counts
+                self.time_losses[0] += tl1
+                self.time_losses[1] += tl2
+                # Optionally, record per-game results (for later analysis)
+                self.r.append(SCORES[res1])
+                self.r.append(1 - SCORES[res2])
+                # Print intermediate stats if verbosity > 0
+                if self.verbosity > 1:
+                    self.print_results()
+                elif self.verbosity > 0:
+                    self.print_stats()
+
+    def play_match_instance(self):
+        """
+        Play a pair of games (swapping colors between the two engines)
+        and return a tuple: (result_game1, result_game2, time_loss_game1, time_loss_game2)
+        Each result is from white's perspective (WIN, LOSS, or DRAW).
+        """
+        # Choose a variant randomly if multiple are provided.
+        variant = random.choice(self.variants)
+        # Pick a position from the opening book (if available), else use "startpos"
+        pos = "fen " + random.choice(self.fens) if self.fens else "startpos"
+
+        # Game 1: engine1 plays white, engine2 plays black.
+        res1, tl1, _ = self.play_game_instance(variant, pos, white=0, black=1)
+        # Game 2: swap colors.
+        res2, tl2, _ = self.play_game_instance(variant, pos, white=1, black=0)
+        return res1, res2, tl1, tl2
+
+    def play_game_instance(self, variant, pos, white, black):
+        """
+        Play a single game between two engines.
+        
+        Parameters:
+          variant : the chess variant to use.
+          pos     : starting position (either "startpos" or a FEN string prefixed by "fen ").
+          white   : index (0 or 1) indicating which engine plays white.
+          black   : index (0 or 1) for black.
+        
+        Returns a tuple: (result, time_loss, move_list)
+          - result: from white's perspective (WIN, LOSS, DRAW)
+          - time_loss: 1 if a time loss occurred, else 0.
+          - move_list: the list of moves played (for logging/debug purposes).
+        """
+        bestmoves = []
+        wt = self.time
+        bt = self.time
+        # Create engine processes for both engines.
+        engines = []
+        for path, opts in zip(self.engine_paths, self.engine_options):
+            engine = chess.uci.popen_engine(path)
+            engine.uci()
+            if self.config:
+                engine.setoption({"VariantPath": self.config})
+            engine.setoption({"UCI_Variant": variant})
+            engine.setoption(opts)
+            engines.append(engine)
+        # Set up info handlers for both engines.
+        info_handlers = []
+        for engine in engines:
+            handler = chess.uci.InfoHandler()
+            engine.info_handlers.append(handler)
+            info_handlers.append(handler)
+        # Start a new game for each engine.
+        for engine in engines:
+            engine.ucinewgame()
+            engine.setoption({"clear hash": True, "UCI_Variant": variant})
+
+        # Some variants may require a positional offset.
+        offset = 0
+        if pos != "startpos" and " b " in pos:
+            offset = 1
+
+        # Main game loop.
+        while True:
+            # Determine which engine should move based on the move number.
+            index = white if (len(bestmoves) + offset) % 2 == 0 else black
+            engine = engines[index]
+            handler = info_handlers[index]
+            # Send the current position and moves to the engine.
+            cmd = "position " + pos + " moves " + " ".join(bestmoves)
+            engine.send_line(cmd)
+            # Request a move with the remaining time and increment.
+            bestmove, ponder = engine.go(wtime=wt, btime=bt, winc=self.inc, binc=self.inc)
+            bestmoves.append(bestmove)
+            with handler:
+                # Check that the engine returned a score.
+                if 1 in handler.info.get("score", {}):
+                    # Check for end-of-game conditions.
+                    if not handler.info.get("pv") and bestmove == "(none)":
+                        warnings.warn("Reached final position. This might cause undefined behaviour.")
+                        if handler.info["score"][1].cp == 0:
+                            result = DRAW
+                            break
+                        elif handler.info["score"][1].mate == 0 and variant in ["giveaway", "losers"]:
+                            result = WIN if index == white else LOSS
+                            break
+                        elif handler.info["score"][1].mate == 0:
+                            result = LOSS if index == white else WIN
+                            break
+                        else:
+                            raise Exception("Invalid game result.\nMove list: " + " ".join(bestmoves))
+                    elif handler.info["score"][1].cp == 0 and handler.info.get("pv") and len(handler.info["pv"][1]) == 1:
+                        result = DRAW
+                        break
+                    elif handler.info["score"][1].mate == 1:
+                        result = WIN if index == white else LOSS
+                        break
+                    # Adjust the clock for the engine that just moved.
+                    if index == white:
+                        wt += self.inc - handler.info.get("time", 0)
+                        if wt < 0:
+                            tl = 1
+                            result = LOSS
+                            break
+                    else:
+                        bt += self.inc - handler.info.get("time", 0)
+                        if bt < 0:
+                            tl = 1
+                            result = WIN
+                            break
+                else:
+                    raise Exception("Engine does not return a score.\nMove list: " + " ".join(bestmoves))
+        # Close engine processes.
+        for engine in engines:
+            engine.quit()
+        # If no time loss was recorded in the loop, set tl to 0.
+        if 'tl' not in locals():
+            tl = 0
+        if self.verbosity > 1:
+            self.out.write(
+                "Game (%s):\n" % (self.variant,) + pos + "\n" + " ".join(bestmoves) + "\n")
+        return result, tl, bestmoves
+
+    def run(self):
+        """Main routine: print settings, optionally load the opening book,
+        and start worker threads until the stop condition is met."""
+        self.print_settings()
+        # If using an opening book, initialize the FEN list.
+        if self.book and (len(self.variants) > 1 or not self.fens):
+            self.init_book()
+
+        # Start the worker threads.
+        workers = []
+        for i in range(self.threads):
+            t = threading.Thread(target=self.worker)
+            t.start()
+            workers.append(t)
+        # Wait for all workers to finish.
+        for t in workers:
+            t.join()
+
+        self.print_results()
+        self.close()
 
 
 if __name__ == "__main__":
