@@ -237,9 +237,9 @@ class EngineMatch:
                     else:
                         self.scores[1 - res2] += 1
                         if res2 == WIN:
-                            self.black_wins += 1  # engine1 was black, so black won
+                            self.white_wins += 1  # white won (res2 is from white's perspective)
                         else:
-                            self.white_wins += 1  # engine1 was black, so white won
+                            self.black_wins += 1  # black won
                     self.r.append(1 - SCORES[res2])
                     games_added += 1
                 
