@@ -77,7 +77,7 @@ jobs:
             download-path: fairy-stockfish
           - os: windows-latest
             binary-name: fairy-stockfish-largeboard_x86-64.exe
-            binary-path: .\fairy-stockfish.exe
+            binary-path: ./fairy-stockfish.exe
             download-path: fairy-stockfish.exe
     name: Integration Test (${{ matrix.os }})
     

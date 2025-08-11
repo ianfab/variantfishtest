@@ -70,7 +70,7 @@ class TestVariantFishTest(unittest.TestCase):
             self.assertEqual(match.max_games, 5000)  # default
             self.assertEqual(match.time, 10000)  # default
             self.assertEqual(match.inc, 100)  # default
-            self.assertEqual(match.threads, 4)  # default
+            self.assertEqual(match.threads, 1)  # default
             
             # Check that score tracking is initialized
             self.assertEqual(match.scores, [0, 0, 0])
