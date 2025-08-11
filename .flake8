@@ -1,0 +1,37 @@
+[flake8]
+# Focus on serious issues, not formatting nitpicks
+max-line-length = 120
+ignore = 
+    E203,
+    E501,
+    W503,
+    W504,
+    E731,
+    W293,
+    W291,
+    E402,
+    E741,
+    B007,
+    B028,
+    SIM115,
+    SIM904,
+    
+# Focus on detecting actual problems - primarily undefined names, unused imports, etc.
+select = 
+    E,
+    W,
+    F,
+    B,
+    SIM,
+
+exclude = 
+    .git,
+    __pycache__,
+    .pytest_cache,
+    .venv,
+    venv,
+    env,
+    chess,
+    
+# Don't be too strict about complex functions in this project
+max-complexity = 15
