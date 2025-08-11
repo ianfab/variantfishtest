@@ -6,6 +6,7 @@ import warnings
 import argparse
 import threading
 import logging
+import math  # NEW
 
 import stat_util
 import chess.uci
@@ -82,7 +83,12 @@ class EngineMatch:
         # Number of threads to run concurrently
         self.threads = self.threads
 
-        # Logging setup
+        # NEW: additional stats
+        self.white_wins = 0
+        self.black_wins = 0
+        self.draw_games = 0
+        self.pentanomial = [0] * 5  # [LL, LD, DD/WL, WD, WW]
+
         if self.verbosity > 2:
             logging.basicConfig()
             chess.uci.LOGGER.setLevel(logging.DEBUG)
@@ -157,14 +163,26 @@ class EngineMatch:
         drawrate = float(self.scores[2]) / sum(self.scores) if sum(self.scores) > 0 else 0
         self.out.write("------------------------\n")
         self.out.write("Stats:\n")
-        self.out.write("draw rate: %.2f\n" % (drawrate))
+        # NEW: percentage output
+        self.out.write("draw rate: %.2f%%\n" % (100.0 * drawrate))
         self.out.write("time losses engine1: %d\n" % (self.time_losses[0]))
         self.out.write("time losses engine2: %d\n" % (self.time_losses[1]))
+        # NEW: colour balance and pentanomial
+        self.out.write("white wins: %d black wins: %d draws: %d\n" % (self.white_wins, self.black_wins, self.draw_games))
+        self.out.write("pentanomial [LL LD DD/WL WD WW]: [%s]\n" % (",".join(str(x) for x in self.pentanomial)))
         self.out.write("\n")
         if self.sprt:
             self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
         else:
             self.out.write(elo_stats(self.scores))
+        # NEW: normalized Elo with guard for early/degenerate cases
+        try:
+            elo, _, _ = stat_util.get_elo(self.scores)
+            if sum(self.scores) > 1 and drawrate < 1.0 - 1e-9:
+                norm_elo = elo / math.sqrt(1.0 - drawrate)
+                self.out.write("Normalised ELO: %.2f\n" % norm_elo)
+        except (ValueError, ZeroDivisionError):
+            pass
         self.out.write(print_scores(self.scores) + "\n")
         self.out.flush()
 
@@ -187,19 +205,44 @@ class EngineMatch:
                 # Game 1: engine1 plays white.
                 if res1 == DRAW:
                     self.scores[DRAW] += 1
+                    self.draw_games += 1
                 else:
                     self.scores[res1] += 1
+                    if res1 == WIN:
+                        self.white_wins += 1
+                    else:
+                        self.black_wins += 1
                 # Game 2: engine1 plays black; use 1 - res if not a draw.
                 if res2 == DRAW:
                     self.scores[DRAW] += 1
+                    self.draw_games += 1
                 else:
                     self.scores[1 - res2] += 1
+                    if res2 == WIN:
+                        self.black_wins += 1  # engine1 was black, so black won
+                    else:
+                        self.white_wins += 1  # engine1 was black, so white won
                 # Update time loss counts
                 self.time_losses[0] += tl1
                 self.time_losses[1] += tl2
-                # Optionally, record per-game results (for later analysis)
+                # Record per-game results (for later analysis and pentanomial)
                 self.r.append(SCORES[res1])
                 self.r.append(1 - SCORES[res2])
+                # Update pentanomial after each game pair
+                if len(self.r) >= 2:
+                    pair_score = self.r[-2] + self.r[-1]  # 0,0.5,1,1.5,2
+                    eps = 1e-9
+                    if abs(pair_score - 0.0) < eps:
+                        idx = 0  # LL
+                    elif abs(pair_score - 0.5) < eps:
+                        idx = 1  # LD
+                    elif abs(pair_score - 1.0) < eps:
+                        idx = 2  # DD or WL
+                    elif abs(pair_score - 1.5) < eps:
+                        idx = 3  # WD
+                    else:
+                        idx = 4  # WW
+                    self.pentanomial[idx] += 1
                 # Print intermediate stats if verbosity > 0
                 if self.verbosity > 1:
                     self.print_results()
