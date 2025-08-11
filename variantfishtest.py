@@ -6,7 +6,7 @@ import warnings
 import argparse
 import threading
 import logging
-import math  # NEW
+import math
 
 import stat_util
 import chess.uci
@@ -83,7 +83,7 @@ class EngineMatch:
         # Number of threads to run concurrently
         self.threads = self.threads
 
-        # NEW: additional stats
+        # additional stats
         self.white_wins = 0
         self.black_wins = 0
         self.draw_games = 0
@@ -163,11 +163,11 @@ class EngineMatch:
         drawrate = float(self.scores[2]) / sum(self.scores) if sum(self.scores) > 0 else 0
         self.out.write("------------------------\n")
         self.out.write("Stats:\n")
-        # NEW: percentage output
+        # percentage output
         self.out.write("draw rate: %.2f%%\n" % (100.0 * drawrate))
         self.out.write("time losses engine1: %d\n" % (self.time_losses[0]))
         self.out.write("time losses engine2: %d\n" % (self.time_losses[1]))
-        # NEW: colour balance and pentanomial
+        # colour balance and pentanomial
         self.out.write("white wins: %d black wins: %d draws: %d\n" % (self.white_wins, self.black_wins, self.draw_games))
         self.out.write("pentanomial [LL LD DD/WL WD WW]: [%s]\n" % (",".join(str(x) for x in self.pentanomial)))
         self.out.write("\n")
@@ -175,7 +175,7 @@ class EngineMatch:
             self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
         else:
             self.out.write(elo_stats(self.scores))
-        # NEW: normalized Elo with guard for early/degenerate cases
+        # normalized Elo with guard for early/degenerate cases
         try:
             elo, _, _ = stat_util.get_elo(self.scores)
             if sum(self.scores) > 1 and drawrate < 1.0 - 1e-9:
