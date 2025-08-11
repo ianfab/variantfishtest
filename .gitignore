@@ -2,3 +2,23 @@
 *~
 *.swp
 engines/*
+
+# Development environment
+venv/
+.venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
