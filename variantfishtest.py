@@ -202,33 +202,52 @@ class EngineMatch:
                 continue
             # Update the global counters (each match instance is 2 games)
             with self.lock:
+                # Check if we can add these games without exceeding the limit
+                current_total = sum(self.scores)
+                games_to_add = 2  # Each match instance is 2 games
+                
+                # If adding these games would exceed the limit, only add what we can
+                if self.max_games and current_total + games_to_add > self.max_games:
+                    remaining_games = self.max_games - current_total
+                    if remaining_games <= 0:
+                        break  # Already at or over the limit, stop this worker
+                    # Only process the first game if we can only fit one more
+                    games_to_add = remaining_games
+                
+                games_added = 0
                 # Game 1: engine1 plays white.
-                if res1 == DRAW:
-                    self.scores[DRAW] += 1
-                    self.draw_games += 1
-                else:
-                    self.scores[res1] += 1
-                    if res1 == WIN:
-                        self.white_wins += 1
+                if games_added < games_to_add:
+                    if res1 == DRAW:
+                        self.scores[DRAW] += 1
+                        self.draw_games += 1
                     else:
-                        self.black_wins += 1
+                        self.scores[res1] += 1
+                        if res1 == WIN:
+                            self.white_wins += 1
+                        else:
+                            self.black_wins += 1
+                    self.r.append(SCORES[res1])
+                    games_added += 1
+                
                 # Game 2: engine1 plays black; use 1 - res if not a draw.
-                if res2 == DRAW:
-                    self.scores[DRAW] += 1
-                    self.draw_games += 1
-                else:
-                    self.scores[1 - res2] += 1
-                    if res2 == WIN:
-                        self.black_wins += 1  # engine1 was black, so black won
+                if games_added < games_to_add:
+                    if res2 == DRAW:
+                        self.scores[DRAW] += 1
+                        self.draw_games += 1
                     else:
-                        self.white_wins += 1  # engine1 was black, so white won
-                # Update time loss counts
+                        self.scores[1 - res2] += 1
+                        if res2 == WIN:
+                            self.black_wins += 1  # engine1 was black, so black won
+                        else:
+                            self.white_wins += 1  # engine1 was black, so white won
+                    self.r.append(1 - SCORES[res2])
+                    games_added += 1
+                
+                # Update time loss counts (for both games, even if we only counted one)
                 self.time_losses[0] += tl1
                 self.time_losses[1] += tl2
-                # Record per-game results (for later analysis and pentanomial)
-                self.r.append(SCORES[res1])
-                self.r.append(1 - SCORES[res2])
-                # Update pentanomial after each game pair
+                
+                # Update pentanomial if we have complete pairs
                 if len(self.r) >= 2:
                     pair_score = self.r[-2] + self.r[-1]  # 0,0.5,1,1.5,2
                     eps = 1e-9
