@@ -64,7 +64,7 @@ class EngineMatch:
                                  help="verbosity level: "
                                       "0 - only final results, 1 - intermediate results, 2 - moves of games, 3 - debug",
                                  type=int, choices=[0, 1, 2, 3], default=1)
-        self.parser.add_argument("-T", "--threads", help="number of concurrent game threads", type=int, default=4)
+        self.parser.add_argument("-T", "--threads", help="number of concurrent game threads", type=int, default=1)
         self.parser.parse_args(namespace=self)
 
         # Split variants and set default variant (workers choose randomly later)

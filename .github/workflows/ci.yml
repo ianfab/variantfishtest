@@ -65,3 +65,48 @@ jobs:
       run: |
         # Run tests with coverage
         pytest tests/ --cov=. --cov-report=xml --cov-report=term-missing
+
+  integration:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary-name: fairy-stockfish-largeboard_x86-64
+            binary-path: ./fairy-stockfish
+            download-path: fairy-stockfish
+          - os: windows-latest
+            binary-name: fairy-stockfish-largeboard_x86-64.exe
+            binary-path: .\fairy-stockfish.exe
+            download-path: fairy-stockfish.exe
+    name: Integration Test (${{ matrix.os }})
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Download Fairy-Stockfish
+      run: |
+        curl -L -o ${{ matrix.download-path }} https://github.com/fairy-stockfish/Fairy-Stockfish/releases/latest/download/${{ matrix.binary-name }}
+      shell: bash
+    
+    - name: Make executable (Linux)
+      if: runner.os == 'Linux'
+      run: chmod +x ${{ matrix.download-path }}
+    
+    - name: Test UCI functionality
+      run: |
+        echo "quit" | ${{ matrix.binary-path }} uci
+      shell: bash
+    
+    - name: Run integration test
+      run: |
+        python variantfishtest.py ${{ matrix.binary-path }} ${{ matrix.binary-path }} -n 4 -t 100 -i 30 -T 2 --verbosity 1
+        echo "✅ Integration test completed successfully!"
+      shell: bash
