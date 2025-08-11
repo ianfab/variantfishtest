@@ -3,6 +3,7 @@ import os
 import random
 import warnings
 import argparse
+import math  # NEW
 
 import stat_util
 import chess.uci
@@ -69,6 +70,12 @@ class EngineMatch:
         self.r = []
         self.engines = []
         self.time_losses = []
+
+        # NEW: additional stats
+        self.white_wins = 0
+        self.black_wins = 0
+        self.draw_games = 0
+        self.pentanomial = [0] * 5  # [LL, LD, DD/WL, WD, WW]
 
         if self.verbosity > 2:
             logging.basicConfig()
@@ -200,6 +207,15 @@ class EngineMatch:
     def process_game(self, white, black, pos="startpos"):
         """Play a game and process the result."""
         res = self.play_game(white, black, pos)
+
+        # NEW: per-colour tallies
+        if res == WIN:
+            self.white_wins += 1
+        elif res == LOSS:
+            self.black_wins += 1
+        else:
+            self.draw_games += 1
+
         if self.verbosity > 1:
             self.out.write(
                 "Game %d (%s):\n" % (sum(self.scores) + 1, self.variant) + pos + "\n" + " ".join(self.bestmoves) + "\n")
@@ -208,6 +224,23 @@ class EngineMatch:
             self.scores[res] += 1
         else:
             self.scores[1 - res] += 1
+
+        # NEW: pentanomial update (after each game pair)
+        if len(self.r) % 2 == 0:
+            pair_score = self.r[-2] + self.r[-1]  # 0,0.5,1,1.5,2
+            eps = 1e-9
+            if abs(pair_score - 0.0) < eps:
+                idx = 0  # LL
+            elif abs(pair_score - 0.5) < eps:
+                idx = 1  # LD
+            elif abs(pair_score - 1.0) < eps:
+                idx = 2  # DD or WL
+            elif abs(pair_score - 1.5) < eps:
+                idx = 3  # WD
+            else:
+                idx = 4  # WW
+            self.pentanomial[idx] += 1
+
         if self.verbosity > 1:
             self.print_results()
         elif self.verbosity > 0:
@@ -246,14 +279,26 @@ class EngineMatch:
         # print(self.r)
         self.out.write("------------------------\n")
         self.out.write("Stats:\n")
-        self.out.write("draw rate: %.2f\n" % (drawrate))
+        # NEW: percentage output
+        self.out.write("draw rate: %.2f%%\n" % (100.0 * drawrate))
         self.out.write("time losses engine1: %d\n" % (self.time_losses[0]))
         self.out.write("time losses engine2: %d\n" % (self.time_losses[1]))
+        # NEW: colour balance and pentanomial
+        self.out.write("white wins: %d black wins: %d draws: %d\n" % (self.white_wins, self.black_wins, self.draw_games))
+        self.out.write("pentanomial [LL LD DD/WL WD WW]: [%s]\n" % (",".join(str(x) for x in self.pentanomial)))
         self.out.write("\n")
         if self.sprt:
             self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
         else:
             self.out.write(elo_stats(self.scores))
+        # NEW: normalized Elo with guard for early/degenerate cases
+        try:
+            elo, _, _ = stat_util.get_elo(self.scores)
+            if sum(self.scores) > 1 and drawrate < 1.0 - 1e-9:
+                norm_elo = elo / math.sqrt(1.0 - drawrate)
+                self.out.write("Normalised ELO: %.2f\n" % norm_elo)
+        except (ValueError, ZeroDivisionError):
+            pass
         self.out.write(print_scores(self.scores) + "\n")
 
 
