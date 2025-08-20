@@ -301,7 +301,8 @@ class TestVariantValidation(unittest.TestCase):
             
             # Verify engines were created and cleaned up
             self.assertEqual(mock_popen.call_count, 2)
-            self.assertEqual(mock_engine.uci.call_count, 2)
+            # With config, uci() should be called twice per engine (initial + after config load)
+            self.assertEqual(mock_engine.uci.call_count, 4)
             self.assertEqual(mock_engine.quit.call_count, 2)
     
     def test_validate_engine_variants_missing_option(self):
