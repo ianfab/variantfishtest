@@ -96,6 +96,59 @@ class EngineMatch:
         # Lock for updating shared counters
         self.lock = threading.Lock()
 
+    def validate_engine_variants(self):
+        """Validate that both engines support all required variants.
+        
+        Sends 'uci' command to each engine and checks the UCI_Variant option
+        to ensure all variants in self.variants are supported.
+        Exits with error if any variant is unsupported.
+        """
+        for engine_idx, engine_path in enumerate(self.engine_paths):
+            if self.verbosity >= 3:
+                self.out.write(f"Validating engine {engine_idx + 1}: {engine_path}\n")
+                self.out.flush()
+            
+            try:
+                # Create temporary engine instance for validation
+                engine = chess.uci.popen_engine(engine_path)
+                engine.uci()
+                
+                # Check if UCI_Variant option exists
+                if "UCI_Variant" not in engine.options:
+                    engine.quit()
+                    self.out.write(f"Error: Engine {engine_idx + 1} ({engine_path}) does not support variants (no UCI_Variant option)\n")
+                    self.out.flush()
+                    sys.exit(1)
+                
+                # Get supported variants from the var field
+                uci_variant_option = engine.options["UCI_Variant"]
+                supported_variants = uci_variant_option.var if uci_variant_option.var else []
+                
+                if self.verbosity >= 3:
+                    self.out.write(f"Engine {engine_idx + 1} supported variants: {supported_variants}\n")
+                    self.out.flush()
+                
+                # Check if all required variants are supported
+                for variant in self.variants:
+                    if variant not in supported_variants:
+                        engine.quit()
+                        self.out.write(f"Error: Engine {engine_idx + 1} ({engine_path}) does not support variant '{variant}'\n")
+                        self.out.write(f"Supported variants: {', '.join(supported_variants)}\n")
+                        self.out.flush()
+                        sys.exit(1)
+                
+                # Clean up temporary engine
+                engine.quit()
+                
+            except Exception as e:
+                self.out.write(f"Error: Failed to validate engine {engine_idx + 1} ({engine_path}): {e}\n")
+                self.out.flush()
+                sys.exit(1)
+        
+        if self.verbosity >= 1:
+            self.out.write(f"Variant validation passed for all engines: {', '.join(self.variants)}\n")
+            self.out.flush()
+
     def close(self):
         if self.out != sys.stdout:
             self.out.close()
@@ -394,6 +447,8 @@ class EngineMatch:
         """Main routine: print settings, optionally load the opening book,
         and start worker threads until the stop condition is met."""
         self.print_settings()
+        # Validate that engines support all required variants
+        self.validate_engine_variants()
         # If using an opening book, initialize the FEN list.
         if self.book and (len(self.variants) > 1 or not self.fens):
             self.init_book()
