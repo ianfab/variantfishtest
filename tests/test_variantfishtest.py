@@ -264,16 +264,16 @@ class TestVariantValidation(unittest.TestCase):
         mock_option.var = ['chess', 'atomic', 'crazyhouse']
         mock_engine.options = {'UCI_Variant': mock_option}
         
-        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2', '--variant', 'chess,atomic']):
-            with unittest.mock.patch('chess.uci.popen_engine', return_value=mock_engine) as mock_popen:
-                match = variantfishtest.EngineMatch()
-                # Should not raise any exception
-                match.validate_engine_variants()
-                
-                # Verify engines were created and cleaned up
-                self.assertEqual(mock_popen.call_count, 2)
-                self.assertEqual(mock_engine.uci.call_count, 2)
-                self.assertEqual(mock_engine.quit.call_count, 2)
+        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2', '--variant', 'chess,atomic']), \
+             unittest.mock.patch('chess.uci.popen_engine', return_value=mock_engine) as mock_popen:
+            match = variantfishtest.EngineMatch()
+            # Should not raise any exception
+            match.validate_engine_variants()
+            
+            # Verify engines were created and cleaned up
+            self.assertEqual(mock_popen.call_count, 2)
+            self.assertEqual(mock_engine.uci.call_count, 2)
+            self.assertEqual(mock_engine.quit.call_count, 2)
     
     def test_validate_engine_variants_missing_option(self):
         """Test validation when engine doesn't have UCI_Variant option."""
@@ -281,14 +281,14 @@ class TestVariantValidation(unittest.TestCase):
         mock_engine = unittest.mock.Mock()
         mock_engine.options = {}  # No UCI_Variant option
         
-        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2']):
-            with unittest.mock.patch('chess.uci.popen_engine', return_value=mock_engine):
-                with unittest.mock.patch('sys.exit') as mock_exit:
-                    match = variantfishtest.EngineMatch()
-                    match.validate_engine_variants()
-                    
-                    # Should call sys.exit(1) due to missing UCI_Variant option
-                    mock_exit.assert_called_with(1)
+        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2']), \
+             unittest.mock.patch('chess.uci.popen_engine', return_value=mock_engine), \
+             unittest.mock.patch('sys.exit') as mock_exit:
+            match = variantfishtest.EngineMatch()
+            match.validate_engine_variants()
+            
+            # Should call sys.exit(1) due to missing UCI_Variant option
+            mock_exit.assert_called_with(1)
     
     def test_validate_engine_variants_unsupported_variant(self):
         """Test validation when engine doesn't support required variant."""
@@ -298,26 +298,26 @@ class TestVariantValidation(unittest.TestCase):
         mock_option.var = ['chess']  # Only supports chess
         mock_engine.options = {'UCI_Variant': mock_option}
         
-        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2', '--variant', 'atomic']):
-            with unittest.mock.patch('chess.uci.popen_engine', return_value=mock_engine):
-                with unittest.mock.patch('sys.exit') as mock_exit:
-                    match = variantfishtest.EngineMatch()
-                    match.validate_engine_variants()
-                    
-                    # Should call sys.exit(1) due to unsupported variant
-                    mock_exit.assert_called_with(1)
-                    mock_engine.quit.assert_called()
+        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2', '--variant', 'atomic']), \
+             unittest.mock.patch('chess.uci.popen_engine', return_value=mock_engine), \
+             unittest.mock.patch('sys.exit') as mock_exit:
+            match = variantfishtest.EngineMatch()
+            match.validate_engine_variants()
+            
+            # Should call sys.exit(1) due to unsupported variant
+            mock_exit.assert_called_with(1)
+            mock_engine.quit.assert_called()
     
     def test_validate_engine_variants_exception_handling(self):
         """Test validation handles engine creation exceptions gracefully."""
-        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2']):
-            with unittest.mock.patch('chess.uci.popen_engine', side_effect=Exception("Engine not found")):
-                with unittest.mock.patch('sys.exit') as mock_exit:
-                    match = variantfishtest.EngineMatch()
-                    match.validate_engine_variants()
-                    
-                    # Should call sys.exit(1) due to exception
-                    mock_exit.assert_called_with(1)
+        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2']), \
+             unittest.mock.patch('chess.uci.popen_engine', side_effect=Exception("Engine not found")), \
+             unittest.mock.patch('sys.exit') as mock_exit:
+            match = variantfishtest.EngineMatch()
+            match.validate_engine_variants()
+            
+            # Should call sys.exit(1) due to exception
+            mock_exit.assert_called_with(1)
 
 
 if __name__ == '__main__':
