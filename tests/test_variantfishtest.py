@@ -274,6 +274,35 @@ class TestVariantValidation(unittest.TestCase):
             self.assertEqual(mock_popen.call_count, 2)
             self.assertEqual(mock_engine.uci.call_count, 2)
             self.assertEqual(mock_engine.quit.call_count, 2)
+            # Verify that setoption was not called (no config provided)
+            mock_engine.setoption.assert_not_called()
+    
+    def test_validate_engine_variants_with_config(self):
+        """Test variant validation loads config file when provided."""
+        # Mock engine with UCI_Variant option
+        mock_engine = unittest.mock.Mock()
+        mock_option = unittest.mock.Mock()
+        mock_option.var = ['chess', 'customvariant']
+        mock_engine.options = {'UCI_Variant': mock_option}
+        
+        with unittest.mock.patch('sys.argv', ['variantfishtest.py', 'engine1', 'engine2', '--variant', 'customvariant', '--config', '/path/to/variants.ini']), \
+             unittest.mock.patch('chess.uci.popen_engine', return_value=mock_engine) as mock_popen:
+            match = variantfishtest.EngineMatch()
+            # Should not raise any exception
+            match.validate_engine_variants()
+            
+            # Verify that VariantPath was set for both engines
+            expected_setoption_calls = [
+                unittest.mock.call({'VariantPath': '/path/to/variants.ini'})
+            ]
+            # Each engine should have setoption called with VariantPath
+            self.assertEqual(mock_engine.setoption.call_count, 2)
+            mock_engine.setoption.assert_has_calls(expected_setoption_calls * 2, any_order=True)
+            
+            # Verify engines were created and cleaned up
+            self.assertEqual(mock_popen.call_count, 2)
+            self.assertEqual(mock_engine.uci.call_count, 2)
+            self.assertEqual(mock_engine.quit.call_count, 2)
     
     def test_validate_engine_variants_missing_option(self):
         """Test validation when engine doesn't have UCI_Variant option."""
