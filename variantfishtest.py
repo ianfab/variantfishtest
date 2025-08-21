@@ -113,6 +113,13 @@ class EngineMatch:
                 engine = chess.uci.popen_engine(engine_path)
                 engine.uci()
                 
+                # Load variant configuration if provided
+                if self.config:
+                    engine.setoption({"VariantPath": self.config})
+                    # Re-query engine options after loading variant configuration
+                    # as the available variants may have changed
+                    engine.uci()
+                
                 # Check if UCI_Variant option exists
                 if "UCI_Variant" not in engine.options:
                     engine.quit()
