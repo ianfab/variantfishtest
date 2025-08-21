@@ -25,6 +25,7 @@ import signal
 import subprocess
 import logging
 import threading
+import sys
 
 try:
     import queue
@@ -37,6 +38,75 @@ LOGGER = logging.getLogger(__name__)
 
 POLL_TIMEOUT = 5
 STOP_TIMEOUT = 2
+
+
+class StderrDeduplicator(object):
+    """Global stderr deduplicator to suppress repeated identical messages from engines."""
+    
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._seen_messages = {}  # message -> (count, last_seen_time)
+        self._suppress_threshold = 2  # After 2 identical messages, start suppressing
+        self._suppress_window = 3600  # Reset suppression after 1 hour
+        self._enabled = False  # Disabled by default
+    
+    def set_enabled(self, enabled):
+        """Enable or disable stderr deduplication."""
+        with self._lock:
+            self._enabled = enabled
+            if not enabled:
+                self._seen_messages.clear()  # Clear state when disabled
+    
+    def should_print_message(self, message):
+        """Return True if message should be printed, False if it should be suppressed."""
+        import time
+        
+        with self._lock:
+            if not self._enabled:
+                return True  # Pass through all messages when disabled
+            
+            current_time = time.time()
+            message = message.strip()
+            
+            if not message:
+                return False
+            
+            if message in self._seen_messages:
+                count, last_seen = self._seen_messages[message]
+                
+                # Reset count if enough time has passed
+                if current_time - last_seen > self._suppress_window:
+                    count = 0
+                
+                count += 1
+                self._seen_messages[message] = (count, current_time)
+                
+                # Suppress if we've seen this message too many times
+                if count > self._suppress_threshold:
+                    # Print a suppression notice occasionally
+                    if count == self._suppress_threshold + 1:
+                        print(f"[stderr] Suppressing repeated message: {message[:100]}{'...' if len(message) > 100 else ''}", file=sys.stderr)
+                    return False
+                else:
+                    return True
+            else:
+                self._seen_messages[message] = (1, current_time)
+                return True
+
+
+# Global stderr deduplicator instance
+_stderr_deduplicator = StderrDeduplicator()
+
+
+def enable_stderr_deduplication(enabled=True):
+    """
+    Enable or disable stderr message deduplication.
+    
+    Args:
+        enabled: True to enable deduplication, False to disable
+    """
+    global _stderr_deduplicator
+    _stderr_deduplicator.set_enabled(enabled)
 
 
 class Option(collections.namedtuple("Option", ["name", "type", "default", "min", "max", "var"])):
@@ -625,11 +695,15 @@ class PopenProcess(object):
 
         self._receiving_thread = threading.Thread(target=self._receiving_thread_target)
         self._receiving_thread.daemon = True
+        
+        self._stderr_thread = threading.Thread(target=self._stderr_thread_target)
+        self._stderr_thread.daemon = True
 
     def spawn(self, engine):
         self.engine = engine
-        self.process = subprocess.Popen(self.command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, bufsize=1, universal_newlines=True)
+        self.process = subprocess.Popen(self.command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1, universal_newlines=True)
         self._receiving_thread.start()
+        self._stderr_thread.start()
 
     def _receiving_thread_target(self):
         while self.is_alive():
@@ -640,6 +714,17 @@ class PopenProcess(object):
             self.engine.on_line_received(line.rstrip())
 
         self.engine.on_terminated()
+
+    def _stderr_thread_target(self):
+        """Process stderr lines and filter duplicates through the global deduplicator."""
+        while self.is_alive():
+            line = self.process.stderr.readline()
+            if not line:
+                continue
+            
+            message = line.rstrip()
+            if _stderr_deduplicator.should_print_message(message):
+                print(message, file=sys.stderr)
 
     def is_alive(self):
         return self.process.poll() is None
@@ -653,6 +738,7 @@ class PopenProcess(object):
     def close_std_streams(self):
         self.process.stdout.close()
         self.process.stdin.close()
+        self.process.stderr.close()
 
     def send_line(self, string):
         self.process.stdin.write(string)

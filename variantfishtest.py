@@ -92,6 +92,8 @@ class EngineMatch:
         if self.verbosity > 2:
             logging.basicConfig()
             chess.uci.LOGGER.setLevel(logging.DEBUG)
+        else:
+            chess.uci.enable_stderr_deduplication(True)
 
         # Lock for updating shared counters
         self.lock = threading.Lock()
