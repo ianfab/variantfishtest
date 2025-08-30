@@ -373,6 +373,7 @@ class EngineMatch:
             engine.setoption({"UCI_Variant": variant})
             engine.setoption(opts)
             engines.append(engine)
+
         # Create custom info handler that forwards error strings to stderr
         class ErrorForwardingInfoHandler(chess.uci.InfoHandler):
             def __init__(self, engine_name):
