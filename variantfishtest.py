@@ -373,10 +373,25 @@ class EngineMatch:
             engine.setoption({"UCI_Variant": variant})
             engine.setoption(opts)
             engines.append(engine)
-        # Set up info handlers for both engines.
+        # Create custom info handler that forwards error strings to stderr
+        class ErrorForwardingInfoHandler(chess.uci.InfoHandler):
+            def __init__(self, engine_name):
+                super(ErrorForwardingInfoHandler, self).__init__()
+                self.engine_name = engine_name
+            
+            def string(self, string):
+                # Check for error strings and forward to stderr
+                if string.startswith("ERROR:"):
+                    sys.stderr.write("[%s] %s\n" % (self.engine_name, string))
+                    sys.stderr.flush()
+                # Call parent handler to process the string normally
+                super(ErrorForwardingInfoHandler, self).string(string)
+        
+        # Set up info handlers for both engines with error forwarding
         info_handlers = []
-        for engine in engines:
-            handler = chess.uci.InfoHandler()
+        for i, engine in enumerate(engines):
+            engine_name = "Engine%d(%s)" % (i + 1, os.path.basename(self.engine_paths[i]))
+            handler = ErrorForwardingInfoHandler(engine_name)
             engine.info_handlers.append(handler)
             info_handlers.append(handler)
         # Start a new game for each engine.
