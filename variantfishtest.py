@@ -7,6 +7,7 @@ import argparse
 import threading
 import logging
 import math
+from collections import defaultdict
 
 import stat_util
 import chess.uci
@@ -67,6 +68,9 @@ class EngineMatch:
                                       "0 - only final results, 1 - intermediate results, 2 - moves of games, 3 - debug",
                                  type=int, choices=[0, 1, 2, 3], default=1)
         self.parser.add_argument("-T", "--threads", help="number of concurrent game threads", type=int, default=1)
+        self.parser.add_argument("--scheduler", help="pairing scheduler for tournaments", 
+                                 choices=["roundrobin", "random", "copeland_ucb", "borda_ucb"], 
+                                 default="random")
         self.parser.parse_args(namespace=self)
 
         # Split variants and set default variant (workers choose randomly later)
@@ -127,6 +131,13 @@ class EngineMatch:
             # Global aggregated scores (for compatibility)
             self.scores = [0, 0, 0]
             self.time_losses = [0] * self.num_engines
+            
+            # New data structures for adaptive scheduling
+            K = self.num_engines
+            self.in_flight = defaultdict(int)  # key: (i,j) with i<j, value: ongoing matches count
+            self.wins = [[0] * K for _ in range(K)]   # wins[i][j] = wins of i vs j (directed)
+            self.draws = [[0] * K for _ in range(K)]  # draws[i][j] = draws in games where i faced j
+            self.games = [[0] * K for _ in range(K)]  # games[i][j] = total games where i faced j
         else:
             # Traditional 2-engine mode
             self.scores = [0, 0, 0]  
@@ -273,12 +284,40 @@ class EngineMatch:
 
     def print_stats(self):
         """Print intermediate results."""
-        self.out.write(print_scores(self.scores) + " ")
-        if self.sprt:
-            self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
+        if self.is_tournament:
+            # For tournaments, show current leader and total games instead of aggregate ELO
+            total_games = sum(self.scores)
+            self.out.write("Total games: %d " % total_games)
+            self._print_current_leader_brief()
         else:
-            self.out.write(elo_stats(self.scores))
+            # For 1v1 matches, show traditional stats
+            self.out.write(print_scores(self.scores) + " ")
+            if self.sprt:
+                self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
+            else:
+                self.out.write(elo_stats(self.scores))
         self.out.flush()
+
+    def _print_current_leader_brief(self):
+        """Print just the current leader for intermediate tournament updates."""
+        if not self.is_tournament:
+            return
+        
+        win_rates, total_games = self._calculate_engine_win_rates()
+        
+        # Find leader(s)
+        if win_rates:
+            max_rate = max(win_rates.values())
+            leaders = [i for i, rate in win_rates.items() if abs(rate - max_rate) < 1e-9]
+            
+            if len(leaders) == 1:
+                leader = leaders[0]
+                self.out.write("- Current Leader: Engine %d (%.3f = %.1f%%, %d games)\n" %
+                               (leader + 1, win_rates[leader], win_rates[leader] * 100, total_games[leader]))
+            else:
+                leader_names = ["Engine %d" % (i + 1) for i in leaders]
+                self.out.write("- Tied Leaders: %s (%.3f = %.1f%%)\n" %
+                               (', '.join(leader_names), max_rate, max_rate * 100))
 
     def print_results(self):
         """Print final test result."""
@@ -299,6 +338,9 @@ class EngineMatch:
                         self.out.write("ELO: %.2f +-%.1f LOS: %.1f%%\n" % (elo, elo95, 100 * los))
                     except (ValueError, ZeroDivisionError):
                         self.out.write("\n")
+            
+            # Calculate and display tournament leader
+            self._print_tournament_leader()
             self.out.write("\nOverall Stats:\n")
         else:
             self.out.write("Stats:\n")
@@ -320,20 +362,286 @@ class EngineMatch:
         self.out.write("white wins: %d black wins: %d draws: %d\n" % (self.white_wins, self.black_wins, self.draw_games))
         self.out.write("pentanomial [LL LD DD/WL WD WW]: [%s]\n" % (",".join(str(x) for x in self.pentanomial)))
         self.out.write("\n")
-        if self.sprt:
-            self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
-        else:
-            self.out.write(elo_stats(self.scores))
-        # normalized Elo with guard for early/degenerate cases
-        try:
-            elo, _, _ = stat_util.get_elo(self.scores)
-            if sum(self.scores) > 1 and drawrate < 1.0 - 1e-9:
-                norm_elo = elo / math.sqrt(1.0 - drawrate)
-                self.out.write("Normalised ELO: %.2f\n" % norm_elo)
-        except (ValueError, ZeroDivisionError):
-            pass
-        self.out.write(print_scores(self.scores) + "\n")
+        
+        # For tournaments, don't print aggregate ELO stats as they don't make sense
+        if not self.is_tournament:
+            if self.sprt:
+                self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
+            else:
+                self.out.write(elo_stats(self.scores))
+            # normalized Elo with guard for early/degenerate cases
+            try:
+                elo, _, _ = stat_util.get_elo(self.scores)
+                if sum(self.scores) > 1 and drawrate < 1.0 - 1e-9:
+                    norm_elo = elo / math.sqrt(1.0 - drawrate)
+                    self.out.write("Normalised ELO: %.2f\n" % norm_elo)
+            except (ValueError, ZeroDivisionError):
+                pass
+        
+            self.out.write(print_scores(self.scores) + "\n")
         self.out.flush()
+
+    def _print_tournament_leader(self):
+        """Calculate and print current tournament leader with confidence statistics."""
+        if not self.is_tournament:
+            return
+        
+        win_rates, total_games = self._calculate_engine_win_rates()
+        
+        # Find leader(s)
+        if win_rates:
+            max_rate = max(win_rates.values())
+            leaders = [i for i, rate in win_rates.items() if abs(rate - max_rate) < 1e-9]
+            
+            self.out.write(f"\nTotal games played: {sum(total_games.values())}\n")
+            if len(leaders) == 1:
+                leader = leaders[0]
+                self.out.write(f"Current Leader: Engine {leader + 1} ({win_rates[leader]:.3f} = {win_rates[leader]*100:.1f}%, {total_games[leader]} games)\n")
+            else:
+                leader_names = [f"Engine {i + 1}" for i in leaders]
+                self.out.write(f"Tied Leaders: {', '.join(leader_names)} ({max_rate:.3f} = {max_rate*100:.1f}%)\n")
+            
+            # Display confidence intervals for all engines
+            self.out.write("Confidence (95% Wilson intervals):\n")
+            for i in sorted(win_rates.keys()):
+                games = total_games[i]
+                if games > 0:
+                    rate = win_rates[i]
+                    # Wilson score interval
+                    z = 1.96
+                    denom = 1 + z * z / games
+                    center = (rate + z * z / (2 * games)) / denom
+                    margin = z * math.sqrt(rate * (1 - rate) / games + z * z / (4 * games * games)) / denom
+                    lower = max(0, center - margin)
+                    upper = min(1, center + margin)
+                    self.out.write(f"  Engine {i + 1}: {rate:.3f} [{lower:.3f}, {upper:.3f}] ({games} games)\n")
+                else:
+                    self.out.write(f"  Engine {i + 1}: no games yet\n")
+
+    def _calculate_engine_win_rates(self):
+        """Calculate win rates and total games for each engine. Returns (win_rates, total_games) dicts."""
+        win_rates = {}
+        total_games = {}
+        
+        for i in range(self.num_engines):
+            wins = 0
+            games = 0
+            for pair in self.engine_pairs:
+                if pair[0] == i:
+                    # Engine i is first in pair
+                    pair_scores = self.pair_scores[pair]
+                    wins += pair_scores[0]  # wins for first engine
+                    wins += pair_scores[2] * 0.5  # half points for draws
+                    games += sum(pair_scores)
+                elif pair[1] == i:
+                    # Engine i is second in pair
+                    pair_scores = self.pair_scores[pair]
+                    wins += pair_scores[1]  # wins for second engine
+                    wins += pair_scores[2] * 0.5  # half points for draws
+                    games += sum(pair_scores)
+            
+            if games > 0:
+                win_rates[i] = wins / games
+                total_games[i] = games
+            else:
+                win_rates[i] = 0.5
+                total_games[i] = 0
+                
+        return win_rates, total_games
+
+    def select_pair(self):
+        """
+        Select an engine pair (i, j) with i < j based on the configured scheduler.
+        Returns tuple (i, j) representing the engine indices to play against each other.
+        """
+        if not self.is_tournament or self.scheduler == "random":
+            # Default behavior: random selection
+            return random.choice(self.engine_pairs)
+        
+        K = self.num_engines
+        pairs = self.engine_pairs
+        
+        # Take a snapshot of current state (no lock needed for reading)
+        wins_snapshot = [row[:] for row in self.wins]
+        draws_snapshot = [row[:] for row in self.draws] 
+        games_snapshot = [row[:] for row in self.games]
+        in_flight_snapshot = dict(self.in_flight)
+        
+        if self.scheduler == "roundrobin":
+            # Simple round-robin: pick pair with fewest games
+            min_games = float('inf')
+            best_pairs = []
+            for i, j in pairs:
+                total_games = games_snapshot[i][j] + games_snapshot[j][i]
+                if total_games < min_games:
+                    min_games = total_games
+                    best_pairs = [(i, j)]
+                elif total_games == min_games:
+                    best_pairs.append((i, j))
+            return random.choice(best_pairs)
+        
+        # For UCB algorithms, we need to compute probabilities and confidence intervals
+        def beta_confidence_interval(wins, total, alpha=0.01):
+            """Compute Beta posterior confidence interval using Jeffreys prior Beta(0.5, 0.5)"""
+            if total == 0:
+                return 0.5, 0.0, 1.0  # No data: p_hat=0.5, wide interval
+            
+            # Jeffreys prior: Beta(0.5, 0.5)
+            alpha_post = wins + 0.5
+            beta_post = (total - wins) + 0.5
+            
+            p_hat = alpha_post / (alpha_post + beta_post)
+            
+            # For confidence interval, we'll use a simple approximation
+            # since we don't have scipy.stats.beta available
+            # Wilson score interval approximation
+            z = 1.96  # 95% confidence (alpha=0.05)
+            if total < 5:
+                # Wide interval for small sample sizes
+                margin = 0.5
+            else:
+                p = wins / total
+                margin = z * math.sqrt(p * (1 - p) / total)
+                margin = min(margin, 0.5)  # Cap the margin
+            
+            lower = max(0.0, p_hat - margin)
+            upper = min(1.0, p_hat + margin)
+            
+            return p_hat, lower, upper
+        
+        # Compute probability estimates with virtual visits
+        lambda_vv = 0.5  # Virtual visits weight (reduced from 1.0 based on UCB literature)
+        prob_matrix = {}  # prob_matrix[(i,j)] = (p_hat, lower, upper) for i beating j
+        
+        for i in range(K):
+            for j in range(K):
+                if i != j:
+                    # Include virtual visits for ongoing matches of this unordered pair
+                    pair_key = (min(i, j), max(i, j))
+                    vv_count = lambda_vv * in_flight_snapshot.get(pair_key, 0)
+                    
+                    w_ij = wins_snapshot[i][j] + 0.5 * draws_snapshot[i][j]  # Draws count as 0.5 wins
+                    n_ij = games_snapshot[i][j]
+                    n_eff = n_ij + vv_count
+                    
+                    prob_matrix[(i, j)] = beta_confidence_interval(w_ij, n_eff)
+        
+        if self.scheduler == "copeland_ucb":
+            return self._select_copeland_ucb(prob_matrix, K, pairs)
+        elif self.scheduler == "borda_ucb":
+            return self._select_borda_ucb(prob_matrix, K, pairs)
+        else:
+            # Fallback to random
+            return random.choice(pairs)
+    
+    def _select_copeland_ucb(self, prob_matrix, K, pairs):
+        """Copeland-UCB: Find optimistic leader and most ambiguous opponent"""
+        
+        # ε-greedy exploration: 10% pure uncertainty sampling (Auer et al. 2002)
+        if random.random() < 0.1:
+            # Pure uncertainty sampling: select pair with largest confidence interval
+            best_width = -1.0
+            best_pairs = []
+            for pair_key in pairs:
+                i, j = pair_key
+                _, lower, upper = prob_matrix.get((i, j), (0.5, 0.0, 1.0))
+                width = upper - lower
+                if width > best_width:
+                    best_width = width
+                    best_pairs = [pair_key]
+                elif abs(width - best_width) < 1e-9:
+                    best_pairs.append(pair_key)
+            if best_pairs:
+                return random.choice(best_pairs)
+        
+        # Compute optimistic Copeland scores
+        copeland_upper = [0] * K
+        for i in range(K):
+            for j in range(K):
+                if i != j:
+                    _, _, upper = prob_matrix.get((i, j), (0.5, 0.0, 1.0))
+                    if upper >= 0.5:
+                        copeland_upper[i] += 1
+        
+        # Find optimistic leader
+        max_copeland = max(copeland_upper)
+        leaders = [i for i in range(K) if copeland_upper[i] == max_copeland]
+        
+        # Small probability of exploring near-leaders to prevent tunnel vision
+        if random.random() < 0.05 and max_copeland > 0:
+            near_leaders = [i for i in range(K) if copeland_upper[i] >= max_copeland - 1]
+            if near_leaders:
+                leaders = near_leaders
+        
+        leader = random.choice(leaders)
+        
+        # Find most ambiguous opponent for the leader
+        best_score = float('inf')
+        best_pairs = []
+        
+        for j in range(K):
+            if j != leader:
+                pair_key = (min(leader, j), max(leader, j))
+                if pair_key in pairs:
+                    p_hat, lower, upper = prob_matrix.get((leader, j), (0.5, 0.0, 1.0))
+                    
+                    # Ambiguity score: small gap (close to 0.5) and large width
+                    gap = abs(0.5 - p_hat)
+                    width = upper - lower
+                    score = gap - 0.5 * width  # k=0.5 from literature, smaller is better
+                    
+                    if score < best_score:
+                        best_score = score
+                        best_pairs = [pair_key]
+                    elif abs(score - best_score) < 1e-9:
+                        best_pairs.append(pair_key)
+        
+        return random.choice(best_pairs) if best_pairs else random.choice(pairs)
+    
+    def _select_borda_ucb(self, prob_matrix, K, pairs):
+        """Borda-UCB: Use average win probability across all opponents"""
+        
+        # Compute optimistic Borda scores
+        borda_upper = [0.0] * K
+        for i in range(K):
+            total_upper = 0.0
+            for j in range(K):
+                if i != j:
+                    _, _, upper = prob_matrix.get((i, j), (0.5, 0.0, 1.0))
+                    total_upper += upper
+            borda_upper[i] = total_upper / (K - 1) if K > 1 else 0.0
+        
+        # Find optimistic leader
+        max_borda = max(borda_upper)
+        leaders = [i for i in range(K) if abs(borda_upper[i] - max_borda) < 1e-9]
+        
+        # Small probability of exploring near-leaders
+        if random.random() < 0.05:
+            near_leaders = [i for i in range(K) if borda_upper[i] >= max_borda - 0.05]
+            if near_leaders:
+                leaders = near_leaders
+        
+        leader = random.choice(leaders)
+        
+        # Find opponent that most reduces uncertainty in leader's Borda score
+        # Choose pair with largest confidence interval width
+        best_width = -1.0
+        best_pairs = []
+        
+        for j in range(K):
+            if j != leader:
+                pair_key = (min(leader, j), max(leader, j))
+                if pair_key in pairs:
+                    _, lower, upper = prob_matrix.get((leader, j), (0.5, 0.0, 1.0))
+                    width = upper - lower
+                    
+                    if width > best_width:
+                        best_width = width
+                        best_pairs = [pair_key]
+                    elif abs(width - best_width) < 1e-9:
+                        best_pairs.append(pair_key)
+        
+        return random.choice(best_pairs) if best_pairs else random.choice(pairs)
 
     def worker(self):
         """Worker thread: play match instances until the global stop condition is met."""
@@ -341,13 +649,26 @@ class EngineMatch:
             with self.lock:
                 if self.stop():
                     break
+            
+            # Select pair intelligently and manage in_flight counter
+            if self.is_tournament:
+                selected_pair = self.select_pair()
+                with self.lock:
+                    self.in_flight[selected_pair] += 1
+            else:
+                selected_pair = None
+                
             try:
                 # Play one match instance (two games with color swap)
                 if self.is_tournament:
-                    res1, res2, tl1, tl2, engine_pair = self.play_match_instance()
+                    res1, res2, tl1, tl2, engine_pair = self.play_match_instance(forced_pair=selected_pair)
                 else:
                     res1, res2, tl1, tl2, engine_pair = self.play_match_instance()
             except Exception as e:
+                # Decrement in_flight counter on error
+                if self.is_tournament:
+                    with self.lock:
+                        self.in_flight[selected_pair] -= 1
                 # Log the exception and continue with the next match instance.
                 self.out.write("Error in match instance: %s\n" % e)
                 self.out.flush()
@@ -381,6 +702,18 @@ class EngineMatch:
                             self.pair_scores[engine_pair][1] += 1  # Second engine wins
                         # Update time losses
                         self.pair_time_losses[engine_pair][0] += tl1
+                        
+                        # Update directed statistics for adaptive scheduling
+                        i, j = white_idx, black_idx  # Game 1: white=i, black=j
+                        if res1 == DRAW:
+                            self.draws[i][j] += 1
+                            self.draws[j][i] += 1
+                        elif res1 == WIN:
+                            self.wins[i][j] += 1  # white (i) won
+                        else:  # res1 == LOSS
+                            self.wins[j][i] += 1  # black (j) won
+                        self.games[i][j] += 1
+                        self.games[j][i] += 1
                     
                     # Update global scores for compatibility
                     if res1 == DRAW:
@@ -407,6 +740,21 @@ class EngineMatch:
                             self.pair_scores[engine_pair][0] += 1  # First engine wins (was black)
                         # Update time losses
                         self.pair_time_losses[engine_pair][1] += tl2
+                        
+                        # Update directed statistics for adaptive scheduling
+                        # Game 2: colors swapped, but engine indices remain consistent
+                        white_engine = black_idx  # black_idx from Game 1 is now white in Game 2
+                        black_engine = white_idx  # white_idx from Game 1 is now black in Game 2
+                        
+                        if res2 == DRAW:
+                            self.draws[white_engine][black_engine] += 1
+                            self.draws[black_engine][white_engine] += 1
+                        elif res2 == WIN:
+                            self.wins[white_engine][black_engine] += 1  # white engine won
+                        else:  # res2 == LOSS
+                            self.wins[black_engine][white_engine] += 1  # black engine won
+                        self.games[white_engine][black_engine] += 1
+                        self.games[black_engine][white_engine] += 1
                     
                     # Update global scores for compatibility
                     if res2 == DRAW:
@@ -425,6 +773,10 @@ class EngineMatch:
                 if not self.is_tournament:
                     self.time_losses[0] += tl1
                     self.time_losses[1] += tl2
+                
+                # Decrement in_flight counter for tournament mode
+                if self.is_tournament and selected_pair:
+                    self.in_flight[selected_pair] -= 1
                 
                 # Update pentanomial if we have complete pairs
                 if len(self.r) >= 2:
@@ -448,12 +800,12 @@ class EngineMatch:
                 elif self.verbosity > 0:
                     self.print_stats()
 
-    def play_match_instance(self):
+    def play_match_instance(self, forced_pair=None):
         """
         Play a pair of games (swapping colors between the two engines)
         and return a tuple: (result_game1, result_game2, time_loss_game1, time_loss_game2, engine_pair)
         Each result is from white's perspective (WIN, LOSS, or DRAW).
-        For tournaments, randomly selects an engine pair.
+        For tournaments, uses forced_pair if provided, otherwise randomly selects an engine pair.
         """
         # Choose a variant randomly if multiple are provided.
         variant = random.choice(self.variants)
@@ -461,8 +813,11 @@ class EngineMatch:
         pos = "fen " + random.choice(self.fens) if self.fens else "startpos"
 
         if self.is_tournament:
-            # For tournaments, randomly select an engine pair
-            engine_pair = random.choice(self.engine_pairs)
+            # For tournaments, use forced pair if provided, otherwise random selection
+            if forced_pair:
+                engine_pair = forced_pair
+            else:
+                engine_pair = random.choice(self.engine_pairs)
             white_idx, black_idx = engine_pair
         else:
             # Traditional 2-engine mode
@@ -598,8 +953,12 @@ class EngineMatch:
         if 'tl' not in locals():
             tl = 0
         if self.verbosity > 1:
-            self.out.write(
-                "Game (%s):\n" % (self.variant,) + pos + "\n" + " ".join(bestmoves) + "\n")
+            if self.is_tournament:
+                self.out.write(
+                    "Game (%s, %d vs %d):\n" % (variant, white + 1, black + 1) + pos + "\n" + " ".join(bestmoves) + "\n")
+            else:
+                self.out.write(
+                    "Game (%s):\n" % (variant,) + pos + "\n" + " ".join(bestmoves) + "\n")
         return result, tl, bestmoves
 
     def run(self):
