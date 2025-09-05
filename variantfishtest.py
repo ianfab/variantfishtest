@@ -284,12 +284,40 @@ class EngineMatch:
 
     def print_stats(self):
         """Print intermediate results."""
-        self.out.write(print_scores(self.scores) + " ")
-        if self.sprt:
-            self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
+        if self.is_tournament:
+            # For tournaments, show current leader and total games instead of aggregate ELO
+            total_games = sum(self.scores)
+            self.out.write("Total games: %d " % total_games)
+            self._print_current_leader_brief()
         else:
-            self.out.write(elo_stats(self.scores))
+            # For 1v1 matches, show traditional stats
+            self.out.write(print_scores(self.scores) + " ")
+            if self.sprt:
+                self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
+            else:
+                self.out.write(elo_stats(self.scores))
         self.out.flush()
+
+    def _print_current_leader_brief(self):
+        """Print just the current leader for intermediate tournament updates."""
+        if not self.is_tournament:
+            return
+        
+        win_rates, total_games = self._calculate_engine_win_rates()
+        
+        # Find leader(s)
+        if win_rates:
+            max_rate = max(win_rates.values())
+            leaders = [i for i, rate in win_rates.items() if abs(rate - max_rate) < 1e-9]
+            
+            if len(leaders) == 1:
+                leader = leaders[0]
+                self.out.write("- Current Leader: Engine %d (%.3f = %.1f%%, %d games)\n" % 
+                             (leader + 1, win_rates[leader], win_rates[leader]*100, total_games[leader]))
+            else:
+                leader_names = ["Engine %d" % (i + 1) for i in leaders]
+                self.out.write("- Tied Leaders: %s (%.3f = %.1f%%)\n" % 
+                             (', '.join(leader_names), max_rate, max_rate*100))
 
     def print_results(self):
         """Print final test result."""
@@ -310,6 +338,9 @@ class EngineMatch:
                         self.out.write("ELO: %.2f +-%.1f LOS: %.1f%%\n" % (elo, elo95, 100 * los))
                     except (ValueError, ZeroDivisionError):
                         self.out.write("\n")
+            
+            # Calculate and display tournament leader
+            self._print_tournament_leader()
             self.out.write("\nOverall Stats:\n")
         else:
             self.out.write("Stats:\n")
@@ -331,20 +362,91 @@ class EngineMatch:
         self.out.write("white wins: %d black wins: %d draws: %d\n" % (self.white_wins, self.black_wins, self.draw_games))
         self.out.write("pentanomial [LL LD DD/WL WD WW]: [%s]\n" % (",".join(str(x) for x in self.pentanomial)))
         self.out.write("\n")
-        if self.sprt:
-            self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
-        else:
-            self.out.write(elo_stats(self.scores))
-        # normalized Elo with guard for early/degenerate cases
-        try:
-            elo, _, _ = stat_util.get_elo(self.scores)
-            if sum(self.scores) > 1 and drawrate < 1.0 - 1e-9:
-                norm_elo = elo / math.sqrt(1.0 - drawrate)
-                self.out.write("Normalised ELO: %.2f\n" % norm_elo)
-        except (ValueError, ZeroDivisionError):
-            pass
+        
+        # For tournaments, don't print aggregate ELO stats as they don't make sense
+        if not self.is_tournament:
+            if self.sprt:
+                self.out.write(sprt_stats(self.scores, self.elo0, self.elo1))
+            else:
+                self.out.write(elo_stats(self.scores))
+            # normalized Elo with guard for early/degenerate cases
+            try:
+                elo, _, _ = stat_util.get_elo(self.scores)
+                if sum(self.scores) > 1 and drawrate < 1.0 - 1e-9:
+                    norm_elo = elo / math.sqrt(1.0 - drawrate)
+                    self.out.write("Normalised ELO: %.2f\n" % norm_elo)
+            except (ValueError, ZeroDivisionError):
+                pass
+        
         self.out.write(print_scores(self.scores) + "\n")
         self.out.flush()
+
+    def _print_tournament_leader(self):
+        """Calculate and print current tournament leader with confidence statistics."""
+        if not self.is_tournament:
+            return
+        
+        win_rates, total_games = self._calculate_engine_win_rates()
+        
+        # Find leader(s)
+        if win_rates:
+            max_rate = max(win_rates.values())
+            leaders = [i for i, rate in win_rates.items() if abs(rate - max_rate) < 1e-9]
+            
+            if len(leaders) == 1:
+                leader = leaders[0]
+                self.out.write(f"\nCurrent Leader: Engine {leader + 1} ({win_rates[leader]:.3f} = {win_rates[leader]*100:.1f}%, {total_games[leader]} games)\n")
+            else:
+                leader_names = [f"Engine {i + 1}" for i in leaders]
+                self.out.write(f"\nTied Leaders: {', '.join(leader_names)} ({max_rate:.3f} = {max_rate*100:.1f}%)\n")
+            
+            # Display confidence intervals for all engines
+            self.out.write("Confidence (95% Wilson intervals):\n")
+            for i in sorted(win_rates.keys()):
+                games = total_games[i]
+                if games > 0:
+                    rate = win_rates[i]
+                    # Wilson score interval
+                    z = 1.96
+                    denom = 1 + z*z/games
+                    center = (rate + z*z/(2*games)) / denom
+                    margin = z * math.sqrt(rate*(1-rate)/games + z*z/(4*games*games)) / denom
+                    lower = max(0, center - margin)
+                    upper = min(1, center + margin)
+                    self.out.write(f"  Engine {i + 1}: {rate:.3f} [{lower:.3f}, {upper:.3f}] ({games} games)\n")
+                else:
+                    self.out.write(f"  Engine {i + 1}: no games yet\n")
+
+    def _calculate_engine_win_rates(self):
+        """Calculate win rates and total games for each engine. Returns (win_rates, total_games) dicts."""
+        win_rates = {}
+        total_games = {}
+        
+        for i in range(self.num_engines):
+            wins = 0
+            games = 0
+            for pair in self.engine_pairs:
+                if pair[0] == i:
+                    # Engine i is first in pair
+                    pair_scores = self.pair_scores[pair]
+                    wins += pair_scores[0]  # wins for first engine
+                    wins += pair_scores[2] * 0.5  # half points for draws
+                    games += sum(pair_scores)
+                elif pair[1] == i:
+                    # Engine i is second in pair
+                    pair_scores = self.pair_scores[pair]
+                    wins += pair_scores[1]  # wins for second engine
+                    wins += pair_scores[2] * 0.5  # half points for draws
+                    games += sum(pair_scores)
+            
+            if games > 0:
+                win_rates[i] = wins / games
+                total_games[i] = games
+            else:
+                win_rates[i] = 0.5
+                total_games[i] = 0
+                
+        return win_rates, total_games
 
     def select_pair(self):
         """
@@ -850,8 +952,12 @@ class EngineMatch:
         if 'tl' not in locals():
             tl = 0
         if self.verbosity > 1:
-            self.out.write(
-                "Game (%s):\n" % (self.variant,) + pos + "\n" + " ".join(bestmoves) + "\n")
+            if self.is_tournament:
+                self.out.write(
+                    "Game (%s, %d vs %d):\n" % (variant, white + 1, black + 1) + pos + "\n" + " ".join(bestmoves) + "\n")
+            else:
+                self.out.write(
+                    "Game (%s):\n" % (variant,) + pos + "\n" + " ".join(bestmoves) + "\n")
         return result, tl, bestmoves
 
     def run(self):
