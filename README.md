@@ -44,7 +44,8 @@ This means that:
 * It played 100 games, with 63 wins, 34 losses, and 3 draws.
 
 ### Tournament Mode Output
-In tournament mode, the output shows results for each engine pair:
+In tournament mode, the output shows results for each engine pair. You can now choose different pairing schedulers:
+
 ```
 Tournament Results:
 Engine 1 vs Engine 2: Total: 20 W: 12 L: 6 D: 2 ELO: 85.3 +-45.2 LOS: 95.8%
@@ -58,3 +59,23 @@ time losses engine2: 1
 time losses engine3: 0
 white wins: 25 black wins: 29 draws: 6
 ```
+
+### Pairing Schedulers
+
+You can control how engine pairs are selected during tournaments using the `--scheduler` option:
+
+- `random` (default): Random pair selection, maintains backward compatibility
+- `roundrobin`: Ensures equal number of games between all pairs
+- `copeland_ucb`: Adaptive scheduler using Copeland scoring with Upper Confidence Bounds
+- `borda_ucb`: Adaptive scheduler using Borda scoring with Upper Confidence Bounds
+
+Example:
+```bash
+python variantfishtest.py engine1 engine2 engine3 --scheduler copeland_ucb
+```
+
+The UCB schedulers are designed to:
+- Find the overall best engine efficiently, even with cycles (A > B > C > A)
+- Soft-exclude weak engines (selected rarely, never completely dropped)
+- Focus games on decisive matches that reduce ranking uncertainty
+- Work seamlessly with multithreading using virtual visits
