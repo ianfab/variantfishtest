@@ -393,12 +393,13 @@ class EngineMatch:
             max_rate = max(win_rates.values())
             leaders = [i for i, rate in win_rates.items() if abs(rate - max_rate) < 1e-9]
             
+            self.out.write(f"\nTotal games played: {sum(total_games.values())}\n")
             if len(leaders) == 1:
                 leader = leaders[0]
-                self.out.write(f"\nCurrent Leader: Engine {leader + 1} ({win_rates[leader]:.3f} = {win_rates[leader]*100:.1f}%, {total_games[leader]} games)\n")
+                self.out.write(f"Current Leader: Engine {leader + 1} ({win_rates[leader]:.3f} = {win_rates[leader]*100:.1f}%, {total_games[leader]} games)\n")
             else:
                 leader_names = [f"Engine {i + 1}" for i in leaders]
-                self.out.write(f"\nTied Leaders: {', '.join(leader_names)} ({max_rate:.3f} = {max_rate*100:.1f}%)\n")
+                self.out.write(f"Tied Leaders: {', '.join(leader_names)} ({max_rate:.3f} = {max_rate*100:.1f}%)\n")
             
             # Display confidence intervals for all engines
             self.out.write("Confidence (95% Wilson intervals):\n")
