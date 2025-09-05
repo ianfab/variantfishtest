@@ -625,16 +625,19 @@ class EngineMatch:
                         self.pair_time_losses[engine_pair][1] += tl2
                         
                         # Update directed statistics for adaptive scheduling
-                        i, j = black_idx, white_idx  # Game 2: white=j, black=i (colors swapped)
+                        # Game 2: colors swapped, but engine indices remain consistent
+                        white_engine = black_idx  # black_idx from Game 1 is now white in Game 2
+                        black_engine = white_idx  # white_idx from Game 1 is now black in Game 2
+                        
                         if res2 == DRAW:
-                            self.draws[i][j] += 1
-                            self.draws[j][i] += 1
+                            self.draws[white_engine][black_engine] += 1
+                            self.draws[black_engine][white_engine] += 1
                         elif res2 == WIN:
-                            self.wins[j][i] += 1  # white (j) won
+                            self.wins[white_engine][black_engine] += 1  # white engine won
                         else:  # res2 == LOSS
-                            self.wins[i][j] += 1  # black (i) won
-                        self.games[i][j] += 1
-                        self.games[j][i] += 1
+                            self.wins[black_engine][white_engine] += 1  # black engine won
+                        self.games[white_engine][black_engine] += 1
+                        self.games[black_engine][white_engine] += 1
                     
                     # Update global scores for compatibility
                     if res2 == DRAW:
