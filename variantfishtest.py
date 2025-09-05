@@ -434,6 +434,23 @@ class EngineMatch:
     def _select_copeland_ucb(self, prob_matrix, K, pairs):
         """Copeland-UCB: Find optimistic leader and most ambiguous opponent"""
         
+        # ε-greedy exploration: 10% pure uncertainty sampling (Auer et al. 2002)
+        if random.random() < 0.1:
+            # Pure uncertainty sampling: select pair with largest confidence interval
+            best_width = -1.0
+            best_pairs = []
+            for pair_key in pairs:
+                i, j = pair_key
+                _, lower, upper = prob_matrix.get((i, j), (0.5, 0.0, 1.0))
+                width = upper - lower
+                if width > best_width:
+                    best_width = width
+                    best_pairs = [pair_key]
+                elif abs(width - best_width) < 1e-9:
+                    best_pairs.append(pair_key)
+            if best_pairs:
+                return random.choice(best_pairs)
+        
         # Compute optimistic Copeland scores
         copeland_upper = [0] * K
         for i in range(K):
@@ -468,7 +485,7 @@ class EngineMatch:
                     # Ambiguity score: small gap (close to 0.5) and large width
                     gap = abs(0.5 - p_hat)
                     width = upper - lower
-                    score = gap - 0.5 * width  # k=0.5 from literature (Yue & Joachims 2011), smaller is better
+                    score = gap - 0.5 * width  # k=0.5 from literature, smaller is better
                     
                     if score < best_score:
                         best_score = score
