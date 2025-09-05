@@ -407,7 +407,7 @@ class EngineMatch:
             return p_hat, lower, upper
         
         # Compute probability estimates with virtual visits
-        lambda_vv = 1.0  # Virtual visits weight
+        lambda_vv = 0.5  # Virtual visits weight (reduced from 1.0 based on UCB literature)
         prob_matrix = {}  # prob_matrix[(i,j)] = (p_hat, lower, upper) for i beating j
         
         for i in range(K):
@@ -468,7 +468,7 @@ class EngineMatch:
                     # Ambiguity score: small gap (close to 0.5) and large width
                     gap = abs(0.5 - p_hat)
                     width = upper - lower
-                    score = gap - 0.2 * width  # k=0.2, smaller is better (more ambiguous)
+                    score = gap - 0.5 * width  # k=0.5 from literature (Yue & Joachims 2011), smaller is better
                     
                     if score < best_score:
                         best_score = score
