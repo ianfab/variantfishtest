@@ -312,12 +312,12 @@ class EngineMatch:
             
             if len(leaders) == 1:
                 leader = leaders[0]
-                self.out.write("- Current Leader: Engine %d (%.3f = %.1f%%, %d games)\n" % 
-                             (leader + 1, win_rates[leader], win_rates[leader]*100, total_games[leader]))
+                self.out.write("- Current Leader: Engine %d (%.3f = %.1f%%, %d games)\n" %
+                               (leader + 1, win_rates[leader], win_rates[leader] * 100, total_games[leader]))
             else:
                 leader_names = ["Engine %d" % (i + 1) for i in leaders]
-                self.out.write("- Tied Leaders: %s (%.3f = %.1f%%)\n" % 
-                             (', '.join(leader_names), max_rate, max_rate*100))
+                self.out.write("- Tied Leaders: %s (%.3f = %.1f%%)\n" %
+                               (', '.join(leader_names), max_rate, max_rate * 100))
 
     def print_results(self):
         """Print final test result."""
@@ -408,9 +408,9 @@ class EngineMatch:
                     rate = win_rates[i]
                     # Wilson score interval
                     z = 1.96
-                    denom = 1 + z*z/games
-                    center = (rate + z*z/(2*games)) / denom
-                    margin = z * math.sqrt(rate*(1-rate)/games + z*z/(4*games*games)) / denom
+                    denom = 1 + z * z / games
+                    center = (rate + z * z / (2 * games)) / denom
+                    margin = z * math.sqrt(rate * (1 - rate) / games + z * z / (4 * games * games)) / denom
                     lower = max(0, center - margin)
                     upper = min(1, center + margin)
                     self.out.write(f"  Engine {i + 1}: {rate:.3f} [{lower:.3f}, {upper:.3f}] ({games} games)\n")
