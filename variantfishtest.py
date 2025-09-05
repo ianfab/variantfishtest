@@ -7,6 +7,7 @@ import argparse
 import threading
 import logging
 import math
+from collections import defaultdict
 
 import stat_util
 import chess.uci
@@ -123,7 +124,6 @@ class EngineMatch:
 
         # Score tracking for tournament mode
         if self.is_tournament:
-            from collections import defaultdict
             # For tournaments, track scores per engine pair
             self.engine_pairs = [(i, j) for i in range(self.num_engines) for j in range(i + 1, self.num_engines)]
             self.pair_scores = {pair: [0, 0, 0] for pair in self.engine_pairs}  # [wins_first, wins_second, draws]
@@ -355,9 +355,6 @@ class EngineMatch:
             # Default behavior: random selection
             return random.choice(self.engine_pairs)
         
-        import math
-        from math import log, exp, sqrt
-        
         K = self.num_engines
         pairs = self.engine_pairs
         
@@ -401,7 +398,7 @@ class EngineMatch:
                 margin = 0.5
             else:
                 p = wins / total
-                margin = z * sqrt(p * (1 - p) / total)
+                margin = z * math.sqrt(p * (1 - p) / total)
                 margin = min(margin, 0.5)  # Cap the margin
             
             lower = max(0.0, p_hat - margin)
