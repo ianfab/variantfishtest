@@ -378,7 +378,7 @@ class EngineMatch:
             except (ValueError, ZeroDivisionError):
                 pass
         
-        self.out.write(print_scores(self.scores) + "\n")
+            self.out.write(print_scores(self.scores) + "\n")
         self.out.flush()
 
     def _print_tournament_leader(self):
