@@ -26,6 +26,17 @@ python variantfishtest.py stockfish1 stockfish2 --e1-options EvalFile=xiangqi-28
 python variantfishtest.py engine1 engine2 engine3 engine4 --engine-options 1:Hash=128 --engine-options 2:Threads=2 --engine-options 3:Hash=256 --engine-options 4:Threads=4 -t 5000 -i 50 -v chess -n 100
 ```
 
+### Engine Aliases (Tournament or 1v1)
+To make results more readable, you can assign aliases to engines. These aliases are used in intermediate stats and final tournament results instead of generic labels like "Engine 1".
+
+```
+python variantfishtest.py /path/to/stockfish /path/to/devbuild /path/to/nnue \
+  --alias 1:SF15 --alias 2:Dev --alias 3:NNUE \
+  --scheduler roundrobin -n 60 -v chess
+```
+
+You can repeat `--alias` for each engine using 1-based indices.
+
 ### Engine Options
 - **New format**: `--engine-options N:option=value` where N is the engine number (1-based)
 - **Legacy format**: `--e1-options option=value` and `--e2-options option=value` (still supported for backward compatibility)
@@ -44,19 +55,19 @@ This means that:
 * It played 100 games, with 63 wins, 34 losses, and 3 draws.
 
 ### Tournament Mode Output
-In tournament mode, the output shows results for each engine pair. You can now choose different pairing schedulers:
+In tournament mode, the output shows results for each engine pair. When aliases are provided, they are shown in place of default engine numbers. You can also choose different pairing schedulers:
 
 ```
 Tournament Results:
-Engine 1 vs Engine 2: Total: 20 W: 12 L: 6 D: 2 ELO: 85.3 +-45.2 LOS: 95.8%
-Engine 1 vs Engine 3: Total: 20 W: 8 L: 10 D: 2 ELO: -15.7 +-42.1 LOS: 35.2%
-Engine 2 vs Engine 3: Total: 20 W: 5 L: 13 D: 2 ELO: -67.4 +-43.8 LOS: 12.1%
+SF15 vs Dev: Total: 20 W: 12 L: 6 D: 2 ELO: 85.3 +-45.2 LOS: 95.8%
+SF15 vs NNUE: Total: 20 W: 8 L: 10 D: 2 ELO: -15.7 +-42.1 LOS: 35.2%
+Dev vs NNUE: Total: 20 W: 5 L: 13 D: 2 ELO: -67.4 +-43.8 LOS: 12.1%
 
 Overall Stats:
 draw rate: 10.00%
-time losses engine1: 0
-time losses engine2: 1
-time losses engine3: 0
+time losses SF15: 0
+time losses Dev: 1
+time losses NNUE: 0
 white wins: 25 black wins: 29 draws: 6
 ```
 
