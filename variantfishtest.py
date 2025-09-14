@@ -71,6 +71,9 @@ class EngineMatch:
         self.parser.add_argument("--scheduler", help="pairing scheduler for tournaments", 
                                  choices=["roundrobin", "random", "copeland_ucb", "borda_ucb"], 
                                  default="random")
+        # Engine aliases for clearer tournament output
+        self.parser.add_argument("--alias", help="alias for an engine (format: engine_index:alias). Repeatable.",
+                                 type=lambda kv: kv.split(":", 1), action='append', default=[])
         self.parser.parse_args(namespace=self)
 
         # Split variants and set default variant (workers choose randomly later)
@@ -93,6 +96,8 @@ class EngineMatch:
         
         # Initialize engine options
         engine_opts = [{} for _ in range(self.num_engines)]
+        # Initialize aliases (None by default → falls back to "Engine N")
+        engine_aliases = [None for _ in range(self.num_engines)]
         
         # Handle new-style engine options
         for opt_spec in self.engine_options:
@@ -117,8 +122,24 @@ class EngineMatch:
             for opt in self.e2_options:
                 if len(opt) == 2:
                     engine_opts[1][opt[0]] = opt[1]
-                    
+        
+        # Parse aliases (format: index:alias) — indices are 1-based like engine numbering
+        for alias_spec in getattr(self, 'alias', []) or []:
+            if len(alias_spec) == 2:
+                try:
+                    idx_str, alias_value = alias_spec
+                    idx = int(idx_str) - 1
+                    if 0 <= idx < self.num_engines:
+                        # Normalize empty strings to None
+                        alias_value = alias_value.strip()
+                        engine_aliases[idx] = alias_value if alias_value else None
+                    else:
+                        print(f"Warning: Invalid alias engine index {idx + 1}, ignoring alias")
+                except (ValueError, IndexError):
+                    print(f"Warning: Invalid alias format: {':'.join(alias_spec)}")
+
         self.engine_options = engine_opts
+        self.engine_aliases = engine_aliases
         
         self.out = open(os.path.abspath(self.log), "a") if self.log else sys.stdout
 
@@ -171,7 +192,8 @@ class EngineMatch:
         """
         for engine_idx, engine_path in enumerate(self.engine_paths):
             if self.verbosity >= 3:
-                self.out.write(f"Validating engine {engine_idx + 1}: {engine_path}\n")
+                name = self._engine_label(engine_idx)
+                self.out.write(f"Validating {name}: {engine_path}\n")
                 self.out.flush()
             
             try:
@@ -260,7 +282,11 @@ class EngineMatch:
         if self.is_tournament:
             self.out.write("Tournament mode with %d engines:\n" % self.num_engines)
             for i, path in enumerate(self.engine_paths):
-                self.out.write("engine%d:    %s\n" % (i + 1, path))
+                alias = self.engine_aliases[i]
+                if alias:
+                    self.out.write("engine%d:    %s (alias: %s)\n" % (i + 1, path, alias))
+                else:
+                    self.out.write("engine%d:    %s\n" % (i + 1, path))
                 self.out.write("e%d-options: %s\n" % (i + 1, self.engine_options[i]))
             self.out.write("engine pairs: %s\n" % [f"({p[0] + 1},{p[1] + 1})" for p in self.engine_pairs])
         else:
@@ -312,10 +338,11 @@ class EngineMatch:
             
             if len(leaders) == 1:
                 leader = leaders[0]
-                self.out.write("- Current Leader: Engine %d (%.3f = %.1f%%, %d games)\n" %
-                               (leader + 1, win_rates[leader], win_rates[leader] * 100, total_games[leader]))
+                leader_name = self._engine_label(leader)
+                self.out.write("- Current Leader: %s (%.3f = %.1f%%, %d games)\n" %
+                               (leader_name, win_rates[leader], win_rates[leader] * 100, total_games[leader]))
             else:
-                leader_names = ["Engine %d" % (i + 1) for i in leaders]
+                leader_names = [self._engine_label(i) for i in leaders]
                 self.out.write("- Tied Leaders: %s (%.3f = %.1f%%)\n" %
                                (', '.join(leader_names), max_rate, max_rate * 100))
 
@@ -331,7 +358,9 @@ class EngineMatch:
                 pair_scores = self.pair_scores[pair]
                 total_games = sum(pair_scores)
                 if total_games > 0:
-                    self.out.write("Engine %d vs Engine %d: " % (pair[0] + 1, pair[1] + 1))
+                    name_a = self._engine_label(pair[0])
+                    name_b = self._engine_label(pair[1])
+                    self.out.write("%s vs %s: " % (name_a, name_b))
                     self.out.write("Total: %d W: %d L: %d D: %d " % (total_games, pair_scores[0], pair_scores[1], pair_scores[2]))
                     try:
                         elo, elo95, los = stat_util.get_elo(pair_scores)
@@ -353,7 +382,8 @@ class EngineMatch:
             for i in range(self.num_engines):
                 total_tl = sum(self.pair_time_losses[pair][j] for pair in self.engine_pairs
                                for j in range(2) if (pair[0] == i and j == 0) or (pair[1] == i and j == 1))
-                self.out.write("time losses engine%d: %d\n" % (i + 1, total_tl))
+                name_i = self._engine_label(i)
+                self.out.write("time losses %s: %d\n" % (name_i, total_tl))
         else:
             self.out.write("time losses engine1: %d\n" % (self.time_losses[0]))
             self.out.write("time losses engine2: %d\n" % (self.time_losses[1]))
@@ -396,9 +426,10 @@ class EngineMatch:
             self.out.write(f"\nTotal games played: {sum(total_games.values())}\n")
             if len(leaders) == 1:
                 leader = leaders[0]
-                self.out.write(f"Current Leader: Engine {leader + 1} ({win_rates[leader]:.3f} = {win_rates[leader]*100:.1f}%, {total_games[leader]} games)\n")
+                leader_name = self._engine_label(leader)
+                self.out.write(f"Current Leader: {leader_name} ({win_rates[leader]:.3f} = {win_rates[leader]*100:.1f}%, {total_games[leader]} games)\n")
             else:
-                leader_names = [f"Engine {i + 1}" for i in leaders]
+                leader_names = [self._engine_label(i) for i in leaders]
                 self.out.write(f"Tied Leaders: {', '.join(leader_names)} ({max_rate:.3f} = {max_rate*100:.1f}%)\n")
             
             # Display confidence intervals for all engines
@@ -414,9 +445,11 @@ class EngineMatch:
                     margin = z * math.sqrt(rate * (1 - rate) / games + z * z / (4 * games * games)) / denom
                     lower = max(0, center - margin)
                     upper = min(1, center + margin)
-                    self.out.write(f"  Engine {i + 1}: {rate:.3f} [{lower:.3f}, {upper:.3f}] ({games} games)\n")
+                    name_i = self._engine_label(i)
+                    self.out.write(f"  {name_i}: {rate:.3f} [{lower:.3f}, {upper:.3f}] ({games} games)\n")
                 else:
-                    self.out.write(f"  Engine {i + 1}: no games yet\n")
+                    name_i = self._engine_label(i)
+                    self.out.write(f"  {name_i}: no games yet\n")
 
     def _calculate_engine_win_rates(self):
         """Calculate win rates and total games for each engine. Returns (win_rates, total_games) dicts."""
@@ -880,7 +913,8 @@ class EngineMatch:
         info_handlers = []
         for i, engine in enumerate(engines):
             engine_idx = engine_indices[i]
-            engine_name = "Engine%d(%s)" % (engine_idx + 1, os.path.basename(self.engine_paths[engine_idx]))
+            alias = self._engine_label(engine_idx)
+            engine_name = "%s(%s)" % (alias, os.path.basename(self.engine_paths[engine_idx]))
             handler = ErrorForwardingInfoHandler(engine_name)
             engine.info_handlers.append(handler)
             info_handlers.append(handler)
@@ -954,12 +988,22 @@ class EngineMatch:
             tl = 0
         if self.verbosity > 1:
             if self.is_tournament:
+                name_w = self._engine_label(white)
+                name_b = self._engine_label(black)
                 self.out.write(
-                    "Game (%s, %d vs %d):\n" % (variant, white + 1, black + 1) + pos + "\n" + " ".join(bestmoves) + "\n")
+                    "Game (%s, %s vs %s):\n" % (variant, name_w, name_b) + pos + "\n" + " ".join(bestmoves) + "\n")
             else:
                 self.out.write(
                     "Game (%s):\n" % (variant,) + pos + "\n" + " ".join(bestmoves) + "\n")
         return result, tl, bestmoves
+
+    def _engine_label(self, idx):
+        """Return display label for engine index respecting aliases.
+        If alias not provided, fall back to 'Engine N'.
+        """
+        if 0 <= idx < len(self.engine_aliases) and self.engine_aliases[idx]:
+            return self.engine_aliases[idx]
+        return f"Engine {idx + 1}"
 
     def run(self):
         """Main routine: print settings, optionally load the opening book,
