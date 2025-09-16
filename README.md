@@ -63,6 +63,18 @@ SF15 vs Dev: Total: 20 W: 12 L: 6 D: 2 ELO: 85.3 +-45.2 LOS: 95.8%
 SF15 vs NNUE: Total: 20 W: 8 L: 10 D: 2 ELO: -15.7 +-42.1 LOS: 35.2%
 Dev vs NNUE: Total: 20 W: 5 L: 13 D: 2 ELO: -67.4 +-43.8 LOS: 12.1%
 
+Total games played: 60
+Current Leader: SF15 (0.633 = 63.3%, 60 games)
+Confidence (95% Wilson intervals):
+  SF15: 0.633 [0.509, 0.743] (60 games)
+  Dev:  0.450 [0.329, 0.576] (60 games)
+  NNUE: 0.417 [0.298, 0.548] (60 games)
+
+Ratings (Elo, Error, Games, Score):
+ 1. SF15                      Elo:     87  Error:   41  Games:   60  Score:  63.3%
+ 2. Dev                       Elo:    -35  Error:   45  Games:   60  Score:  45.0%
+ 3. NNUE                      Elo:    -52  Error:   46  Games:   60  Score:  41.7%
+
 Overall Stats:
 draw rate: 10.00%
 time losses SF15: 0
@@ -70,6 +82,11 @@ time losses Dev: 1
 time losses NNUE: 0
 white wins: 25 black wins: 29 draws: 6
 ```
+
+#### Ratings Table (Cutechess‑style Relative Elo)
+- The ratings table summarizes each engine’s relative Elo and 95% error, computed from its overall W/L/D across the tournament.
+- This mirrors cutechess’s “Elo” column: it treats a player’s results as if versus a single opponent and derives Elo from the overall score fraction (wins + 0.5*draws)/games.
+- It is a quick, comparable indicator for ranking; it is not a full multi‑player rating system.
 
 ### Pairing Schedulers
 
