@@ -370,6 +370,27 @@ class EngineMatch:
             
             # Calculate and display tournament leader
             self._print_tournament_leader()
+            
+            # Compute and display relative Elo ratings per engine (Cutechess-style)
+            ratings = self._compute_tournament_ratings()
+            if ratings:
+                self.out.write("\nRatings (Elo, Error, Games, Score):\n")
+                ratings_sorted = sorted(
+                    ratings,
+                    key=lambda r: ((r['elo'] if r['elo'] is not None else float('-inf')), (r['score'] if r['score'] is not None else -1.0)),
+                    reverse=True,
+                )
+                for rank, r in enumerate(ratings_sorted, start=1):
+                    name = r['name']
+                    games = r['games']
+                    score_pct = 100.0 * r['score'] if r['score'] is not None else 0.0
+                    if r['elo'] is not None and r['error'] is not None:
+                        self.out.write("%2d. %-25s Elo: %7.0f  Error: %4.0f  Games: %4d  Score: %5.1f%%\n" %
+                                       (rank, name, r['elo'], r['error'], games, score_pct))
+                    else:
+                        self.out.write("%2d. %-25s Elo:    n/a  Error:  n/a  Games: %4d  Score: %5.1f%%\n" %
+                                       (rank, name, games, score_pct))
+            
             self.out.write("\nOverall Stats:\n")
         else:
             self.out.write("Stats:\n")
@@ -481,6 +502,69 @@ class EngineMatch:
                 total_games[i] = 0
                 
         return win_rates, total_games
+
+    def _compute_tournament_ratings(self):
+        """Compute Cutechess-style Elo and error per engine from aggregated W/L/D.
+        Elo is computed from each engine's global score fraction (wins + 0.5*draws)/games,
+        with error as the 95% half-interval. Returns a list of dicts per engine.
+        """
+        if not self.is_tournament:
+            return []
+        wins = [0] * self.num_engines
+        losses = [0] * self.num_engines
+        draws = [0] * self.num_engines
+        for (i, j), ps in self.pair_scores.items():
+            w_i, w_j, d = ps[0], ps[1], ps[2]
+            wins[i] += w_i
+            losses[i] += w_j
+            draws[i] += d
+            wins[j] += w_j
+            losses[j] += w_i
+            draws[j] += d
+        ratings = []
+        for i in range(self.num_engines):
+            g = wins[i] + losses[i] + draws[i]
+            name = self._engine_label(i)
+            if g > 0:
+                try:
+                    elo, elo95, _ = stat_util.get_elo([wins[i], losses[i], draws[i]])
+                    score = (wins[i] + 0.5 * draws[i]) / g
+                    ratings.append({
+                        'index': i,
+                        'name': name,
+                        'elo': elo,
+                        'error': elo95,
+                        'games': g,
+                        'score': score,
+                        'wins': wins[i],
+                        'losses': losses[i],
+                        'draws': draws[i],
+                    })
+                except (ValueError, ZeroDivisionError):
+                    ratings.append({
+                        'index': i,
+                        'name': name,
+                        'elo': None,
+                        'error': None,
+                        'games': g,
+                        'score': None,
+                        'wins': wins[i],
+                        'losses': losses[i],
+                        'draws': draws[i],
+                    })
+            else:
+                ratings.append({
+                    'index': i,
+                    'name': name,
+                    'elo': None,
+                    'error': None,
+                    'games': 0,
+                    'score': None,
+                    'wins': 0,
+                    'losses': 0,
+                    'draws': 0,
+                })
+        return ratings
 
     def select_pair(self):
         """
